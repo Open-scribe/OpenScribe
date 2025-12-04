@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": ".tests-dist",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "resolveJsonModule": true,
+    "jsx": "react-jsx",
+    "declaration": false,
+    "emitDeclarationOnly": false
+  },
+  "include": [
+    "tests/**/*.ts",
+    "src/features/transcription/core/**/*.ts",
+    "src/features/transcription/server/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    ".next",
+    ".tests-dist"
+  ]
+}

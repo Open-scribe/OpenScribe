@@ -1,0 +1,413 @@
+"use client"
+
+import { useState, useCallback, useRef, useEffect } from "react"
+import {
+  useEncounters,
+  type Encounter,
+  EncounterList,
+  IdleView,
+  NewEncounterForm,
+  NoteEditor,
+} from "@/features/encounters"
+import { useAudioRecorder, type RecordedSegment, RecordingView } from "@/features/recording"
+import { useSegmentUpload, ProcessingView } from "@/features/transcription"
+import { generateClinicalNote } from "@/app/actions"
+
+type ViewState =
+  | { type: "idle" }
+  | { type: "new-form" }
+  | { type: "recording"; encounterId: string }
+  | { type: "processing"; encounterId: string }
+  | { type: "viewing"; encounterId: string }
+
+type StepStatus = "pending" | "in-progress" | "done" | "failed"
+
+const SEGMENT_DURATION_MS = 10000
+const OVERLAP_MS = 250
+
+export default function HomePage() {
+  const { encounters, addEncounter, updateEncounter, refresh } = useEncounters()
+
+  const [view, setView] = useState<ViewState>({ type: "idle" })
+  const [transcriptionStatus, setTranscriptionStatus] = useState<StepStatus>("pending")
+  const [noteGenerationStatus, setNoteGenerationStatus] = useState<StepStatus>("pending")
+  const [sessionId, setSessionId] = useState<string | null>(null)
+
+  const currentEncounterIdRef = useRef<string | null>(null)
+  const sessionIdRef = useRef<string | null>(null)
+  const eventSourceRef = useRef<EventSource | null>(null)
+  const finalTranscriptRef = useRef<string>("")
+  const finalRecordingRef = useRef<Blob | null>(null)
+
+  const { enqueueSegment, resetQueue } = useSegmentUpload(sessionId, {
+    onError: (error) => {
+      console.error("Segment upload failed:", error)
+    },
+  })
+
+  const cleanupSession = useCallback(() => {
+    eventSourceRef.current?.close()
+    eventSourceRef.current = null
+    sessionIdRef.current = null
+    setSessionId(null)
+    resetQueue()
+  }, [resetQueue])
+
+  const handleSegmentReady = useCallback(
+    (segment: RecordedSegment) => {
+      if (!sessionIdRef.current) return
+      enqueueSegment({
+        seqNo: segment.seqNo,
+        startMs: segment.startMs,
+        endMs: segment.endMs,
+        durationMs: segment.durationMs,
+        overlapMs: segment.overlapMs,
+        blob: segment.blob,
+      })
+    },
+    [enqueueSegment],
+  )
+
+  const {
+    isRecording,
+    isPaused,
+    duration,
+    startRecording,
+    stopRecording,
+    pauseRecording,
+    resumeRecording,
+    error: recordingError,
+  } = useAudioRecorder({
+    onSegmentReady: handleSegmentReady,
+    segmentDurationMs: SEGMENT_DURATION_MS,
+    overlapMs: OVERLAP_MS,
+  })
+
+  useEffect(() => {
+    if (recordingError) {
+      console.error("Recording error:", recordingError)
+      setTranscriptionStatus("failed")
+    }
+  }, [recordingError])
+
+  const handleSegmentEvent = useCallback(
+    (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data) as {
+          stitched_text?: string
+          transcript?: string
+        }
+        const transcript = data.stitched_text || data.transcript || ""
+        if (!transcript) return
+        const encounterId = currentEncounterIdRef.current
+        if (encounterId) {
+          void updateEncounter(encounterId, { transcript_text: transcript })
+        }
+      } catch (error) {
+        console.error("Failed to parse segment event", error)
+      }
+    },
+    [updateEncounter],
+  )
+
+  const processEncounterForNoteGeneration = useCallback(
+    async (encounterId: string, transcript: string) => {
+      const enc = encounters.find((e) => e.id === encounterId)
+      const patientName = enc?.patient_name || ""
+      const visitReason = enc?.visit_reason || ""
+
+      console.log("\n" + "=".repeat(80))
+      console.log("GENERATING CLINICAL NOTE")
+      console.log("=".repeat(80))
+      console.log(`Encounter ID: ${encounterId}`)
+      console.log(`Patient: ${patientName || "Unknown"}`)
+      console.log(`Visit Reason: ${visitReason || "Not provided"}`)
+      console.log(`Transcript length: ${transcript.length} characters`)
+      console.log("=".repeat(80) + "\n")
+
+      setNoteGenerationStatus("in-progress")
+      try {
+        const note = await generateClinicalNote({
+          transcript,
+          patient_name: patientName,
+          visit_reason: visitReason,
+        })
+        await updateEncounter(encounterId, {
+          note_text: note,
+          status: "completed",
+        })
+        await refresh()
+        setNoteGenerationStatus("done")
+        console.log("✅ Clinical note saved to encounter")
+        console.log("\n" + "=".repeat(80))
+        console.log("ENCOUNTER PROCESSING COMPLETE")
+        console.log("=".repeat(80) + "\n")
+        setView({ type: "viewing", encounterId })
+      } catch (err) {
+        console.error("❌ Note generation failed:", err)
+        setNoteGenerationStatus("failed")
+        await updateEncounter(encounterId, { status: "note_generation_failed" })
+        await refresh()
+      }
+    },
+    [encounters, refresh, updateEncounter],
+  )
+
+  const handleFinalEvent = useCallback(
+    (event: MessageEvent) => {
+      try {
+        const data = JSON.parse(event.data) as { final_transcript?: string }
+        const transcript = data.final_transcript || ""
+        if (!transcript) return
+        finalTranscriptRef.current = transcript
+        setTranscriptionStatus("done")
+        const encounterId = currentEncounterIdRef.current
+        if (encounterId) {
+          void (async () => {
+            await updateEncounter(encounterId, { transcript_text: transcript })
+            await refresh()
+            await processEncounterForNoteGeneration(encounterId, transcript)
+          })()
+        }
+        cleanupSession()
+      } catch (error) {
+        console.error("Failed to parse final transcript event", error)
+      }
+    },
+    [cleanupSession, processEncounterForNoteGeneration, refresh, updateEncounter],
+  )
+
+  const handleStreamError = useCallback((event: MessageEvent | Event) => {
+    console.error("Transcription stream error", event)
+    setTranscriptionStatus("failed")
+  }, [])
+
+  useEffect(() => {
+    if (!sessionId) return
+    const source = new EventSource(`/api/transcription/stream/${sessionId}`)
+    eventSourceRef.current = source
+
+    const segmentListener = (event: Event) => handleSegmentEvent(event as MessageEvent)
+    const finalListener = (event: Event) => handleFinalEvent(event as MessageEvent)
+    const errorListener = (event: Event) => handleStreamError(event)
+
+    source.addEventListener("segment", segmentListener)
+    source.addEventListener("final", finalListener)
+    source.addEventListener("error", errorListener)
+
+    return () => {
+      source.removeEventListener("segment", segmentListener)
+      source.removeEventListener("final", finalListener)
+      source.removeEventListener("error", errorListener)
+      source.close()
+      if (eventSourceRef.current === source) {
+        eventSourceRef.current = null
+      }
+    }
+  }, [handleFinalEvent, handleSegmentEvent, handleStreamError, sessionId])
+
+  const startNewSession = useCallback((id: string) => {
+    sessionIdRef.current = id
+    setSessionId(id)
+    resetQueue()
+  }, [resetQueue])
+
+  const handleStartNew = () => {
+    setView({ type: "new-form" })
+  }
+
+  const handleCancelNew = () => {
+    setView({ type: "idle" })
+  }
+
+  const handleStartRecording = async (data: {
+    patient_name: string
+    patient_id: string
+    visit_reason: string
+  }) => {
+    try {
+      cleanupSession()
+      finalTranscriptRef.current = ""
+      finalRecordingRef.current = null
+      setTranscriptionStatus("pending")
+      setNoteGenerationStatus("pending")
+
+      const session = crypto.randomUUID()
+      startNewSession(session)
+
+      const encounter = await addEncounter({
+        ...data,
+        status: "recording",
+        transcript_text: "",
+        session_id: session,
+      })
+
+      currentEncounterIdRef.current = encounter.id
+      await startRecording()
+      setView({ type: "recording", encounterId: encounter.id })
+      setTranscriptionStatus("in-progress")
+    } catch (err) {
+      console.error("Failed to start recording:", err)
+      setTranscriptionStatus("failed")
+    }
+  }
+
+  const uploadFinalRecording = useCallback(async (activeSessionId: string, blob: Blob, attempt = 1): Promise<void> => {
+    try {
+      const formData = new FormData()
+      formData.append("session_id", activeSessionId)
+      formData.append("file", blob, `${activeSessionId}-full.wav`)
+      const response = await fetch("/api/transcription/final", {
+        method: "POST",
+        body: formData,
+      })
+      if (!response.ok) {
+        const retryable = response.status === 429 || response.status >= 500
+        if (retryable && attempt < 3) {
+          await new Promise((resolve) => setTimeout(resolve, 250 * attempt))
+          return uploadFinalRecording(activeSessionId, blob, attempt + 1)
+        }
+        let message = `Final upload failed (${response.status})`
+        try {
+          const body = (await response.json()) as { error?: { message?: string } }
+          if (body?.error?.message) {
+            message = body.error.message
+          }
+        } catch {
+          // ignore
+        }
+        throw new Error(message)
+      }
+    } catch (error) {
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 250 * attempt))
+        return uploadFinalRecording(activeSessionId, blob, attempt + 1)
+      }
+      console.error("Failed to upload final recording:", error)
+      setTranscriptionStatus("failed")
+      throw error
+    }
+  }, [])
+
+  const handleStopRecording = async () => {
+    const encounter = currentEncounter
+    if (!encounter) return
+
+    const audioBlob = await stopRecording()
+    if (!audioBlob) {
+      setTranscriptionStatus("failed")
+      return
+    }
+
+    finalRecordingRef.current = audioBlob
+
+    await updateEncounter(encounter.id, {
+      status: "processing",
+      recording_duration: duration,
+    })
+
+    setView({ type: "processing", encounterId: encounter.id })
+
+    const activeSessionId = sessionIdRef.current
+    if (activeSessionId) {
+      void uploadFinalRecording(activeSessionId, audioBlob)
+    } else {
+      console.error("Missing session identifier for final upload")
+      setTranscriptionStatus("failed")
+    }
+  }
+
+  const handleRetryTranscription = async () => {
+    const blob = finalRecordingRef.current
+    const activeSessionId = sessionIdRef.current
+    if (!blob || !activeSessionId) return
+    setTranscriptionStatus("in-progress")
+    try {
+      await uploadFinalRecording(activeSessionId, blob)
+    } catch {
+      // handled in uploadFinalRecording
+    }
+  }
+
+  const handleRetryNoteGeneration = async () => {
+    const transcript = finalTranscriptRef.current
+    const encounterId = currentEncounter?.id
+    if (!encounterId || !transcript) return
+    await processEncounterForNoteGeneration(encounterId, transcript)
+  }
+
+  const currentEncounter = encounters.find((e) => "encounterId" in view && e.id === view.encounterId)
+  const selectedEncounter = view.type === "viewing" ? encounters.find((e) => e.id === view.encounterId) : null
+
+  const handleSelectEncounter = (encounter: Encounter) => {
+    if (view.type === "recording") return
+    setView({ type: "viewing", encounterId: encounter.id })
+  }
+
+  const handleSaveNote = async (noteText: string) => {
+    if (!selectedEncounter) return
+    await updateEncounter(selectedEncounter.id, { note_text: noteText })
+  }
+
+  const renderMainContent = () => {
+    switch (view.type) {
+      case "idle":
+        return <IdleView onStartNew={handleStartNew} />
+      case "new-form":
+        return (
+          <div className="flex h-full items-center justify-center p-8">
+            <NewEncounterForm onStart={handleStartRecording} onCancel={handleCancelNew} />
+          </div>
+        )
+      case "recording":
+        return (
+          <div className="flex h-full items-center justify-center p-8">
+            <RecordingView
+              patientName={currentEncounter?.patient_name || ""}
+              patientId={currentEncounter?.patient_id || ""}
+              duration={duration}
+              isPaused={isPaused}
+              onStop={handleStopRecording}
+              onPause={pauseRecording}
+              onResume={resumeRecording}
+            />
+          </div>
+        )
+      case "processing":
+        return (
+          <div className="flex h-full items-center justify-center p-8">
+            <ProcessingView
+              patientName={currentEncounter?.patient_name || ""}
+              transcriptionStatus={transcriptionStatus}
+              noteGenerationStatus={noteGenerationStatus}
+              onRetryTranscription={handleRetryTranscription}
+              onRetryNoteGeneration={handleRetryNoteGeneration}
+            />
+          </div>
+        )
+      case "viewing":
+        return selectedEncounter ? (
+          <NoteEditor encounter={selectedEncounter} onSave={handleSaveNote} />
+        ) : (
+          <IdleView onStartNew={handleStartNew} />
+        )
+      default:
+        return <IdleView onStartNew={handleStartNew} />
+    }
+  }
+
+  return (
+    <div className="flex h-screen w-screen overflow-hidden bg-background">
+      <div className="w-72 shrink-0 border-r border-sidebar-border bg-sidebar">
+        <EncounterList
+          encounters={encounters}
+          selectedId={view.type === "viewing" ? view.encounterId : null}
+          onSelect={handleSelectEncounter}
+          onNewEncounter={handleStartNew}
+          disabled={view.type === "recording"}
+        />
+      </div>
+      <main className="flex flex-1 flex-col overflow-hidden bg-background">{renderMainContent()}</main>
+    </div>
+  )
+}

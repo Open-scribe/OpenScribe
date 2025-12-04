@@ -27,11 +27,6 @@ The following features are implemented in v0:
 - ✅ **Local Storage**: All encounters stored in browser localStorage (no server required)
 - ✅ **Simple UI**: Left-hand sidebar with encounter history, right-hand side for workflow
 - ✅ **Export/Copy**: Copy notes to clipboard or export as text files
-- HIPPA Compliant hosting options
-
-The following features are implemented in v1:
-- Add rough notes portion
-- 
 
 ## Demo or Screenshots
 

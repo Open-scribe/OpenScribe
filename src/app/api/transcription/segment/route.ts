@@ -1,0 +1,80 @@
+import type { NextRequest } from "next/server"
+import {
+  parseWavHeader,
+  transcriptionSessionStore,
+  transcribeWavBuffer,
+} from "@/features/transcription"
+
+function jsonError(status: number, code: string, message: string) {
+  return new Response(JSON.stringify({ error: { code, message } }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  })
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const formData = await req.formData()
+    const sessionId = formData.get("session_id")
+    const seqNo = Number(formData.get("seq_no"))
+    const startMs = Number(formData.get("start_ms"))
+    const endMs = Number(formData.get("end_ms"))
+    const durationMs = Number(formData.get("duration_ms"))
+    const overlapMs = Number(formData.get("overlap_ms"))
+    const file = formData.get("file")
+
+    if (
+      typeof sessionId !== "string" ||
+      Number.isNaN(seqNo) ||
+      Number.isNaN(startMs) ||
+      Number.isNaN(endMs) ||
+      Number.isNaN(durationMs) ||
+      Number.isNaN(overlapMs) ||
+      !(file instanceof Blob)
+    ) {
+      return jsonError(400, "validation_error", "Missing required metadata or file")
+    }
+
+    const arrayBuffer = await file.arrayBuffer()
+    let wavInfo
+    try {
+      wavInfo = parseWavHeader(arrayBuffer)
+    } catch (error) {
+      return jsonError(400, "validation_error", error instanceof Error ? error.message : "Invalid WAV file")
+    }
+
+    if (wavInfo.sampleRate !== 16000 || wavInfo.numChannels !== 1 || wavInfo.bitDepth !== 16) {
+      return jsonError(400, "validation_error", "Segments must be 16kHz mono 16-bit PCM WAV")
+    }
+
+    if (wavInfo.durationMs < 8000 || wavInfo.durationMs > 12000) {
+      return jsonError(400, "validation_error", "Segment duration must be between 8s and 12s")
+    }
+
+    try {
+      const transcript = await transcribeWavBuffer(Buffer.from(arrayBuffer), `segment-${seqNo}.wav`)
+      transcriptionSessionStore.addSegment(sessionId, {
+        seqNo,
+        startMs,
+        endMs,
+        durationMs,
+        overlapMs,
+        transcript,
+      })
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { "Content-Type": "application/json" },
+      })
+    } catch (error) {
+      console.error("Segment transcription failed", error)
+      transcriptionSessionStore.emitError(
+        sessionId,
+        "api_error",
+        error instanceof Error ? error.message : "Transcription API failure",
+      )
+      return jsonError(502, "api_error", "Transcription API failed")
+    }
+  } catch (error) {
+    console.error("Segment ingestion failed", error)
+    return jsonError(500, "storage_error", "Failed to process audio segment")
+  }
+}
