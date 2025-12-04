@@ -2,13 +2,19 @@
   "name": "my-v0-project",
   "version": "0.1.0",
   "private": true,
+  "description": "OpenScribe – privacy-conscious clinical documentation assistant",
+  "author": "Sam Margolis",
+  "main": "electron/main.js",
   "scripts": {
-    "build": "next build",
+    "build": "next build --webpack",
     "dev": "next dev",
+    "dev:desktop": "concurrently -k \"pnpm dev\" \"pnpm electron:dev\"",
+    "electron:dev": "wait-on tcp:3000 && cross-env NODE_ENV=development ELECTRON_START_URL=http://localhost:3000 electron electron/main.js",
     "lint": "eslint .",
     "start": "next start",
     "build:test": "tsc --project tsconfig.test.json",
-    "test:audio": "pnpm build:test && node --test .tests-dist/tests/audio-validation.test.js"
+    "test:audio": "pnpm build:test && node --test .tests-dist/tests/audio-validation.test.js",
+    "build:desktop": "pnpm build && node electron/scripts/prepare-next.js && electron-builder --mac"
   },
   "dependencies": {
     "@ai-sdk/openai": "latest",
@@ -70,10 +76,41 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^39.2.5",
+    "electron-builder": "^26.0.12",
+    "fs-extra": "^11.3.2",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "tw-animate-css": "1.3.3",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.openscribe.desktop",
+    "productName": "OpenScribe",
+    "asarUnpack": [
+      "next/**"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "files": [
+      "electron/**/*",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": ".next/standalone",
+        "to": "next"
+      }
+    ]
   },
   "packageManager": "pnpm@10.23.0+sha512.21c4e5698002ade97e4efe8b8b4a89a8de3c85a37919f957e7a0f30f38fbc5bbdd05980ffe29179b2fb6e6e691242e098d945d1601772cad0fef5fb6411e2a4b"
 }

@@ -175,6 +175,44 @@ OpenScribe is built as a Next.js application with the following components:
 - **Format**: WebM or MP4 (browser-dependent)
 - **Sample Rate**: 16kHz (optimized for speech recognition)
 
+## macOS Desktop App
+
+The Electron wrapper ships the exact same Next.js experience inside a signed macOS app. It launches the Next.js renderer in development and bundles the standalone production server for distribution.
+
+### Develop the desktop app
+
+```bash
+pnpm dev:desktop
+```
+
+This command:
+
+- Runs the Next.js dev server on port 3000.
+- Waits for the server to be ready.
+- Launches Electron with hot reload pointing at `http://localhost:3000`.
+
+Quit the Electron window to stop both processes.
+
+### Build a production .app / .dmg
+
+```bash
+pnpm build:desktop
+```
+
+What this script does:
+
+1. `next build --webpack` with `output: 'standalone'`, so the production server can run outside Vercel.
+2. Copies `.next/static` and `public` into `.next/standalone` (needed by the standalone server).
+3. Packages everything with `electron-builder` for macOS (arm64 by default).
+
+Artifacts land in `dist/`:
+
+- `dist/mac-arm64/OpenScribe.app` — runnable bundle for sideloading.
+- `dist/OpenScribe-0.1.0-arm64.dmg` — installer disk image.
+- `dist/OpenScribe-0.1.0-arm64-mac.zip` — zipped app for manual distribution.
+
+To notarize or sign with different certificates, update the `build` block inside `package.json`.
+
 ### Storage Directory
 
 - **Location**: Browser `localStorage` (client-side only)

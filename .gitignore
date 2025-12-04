@@ -1,5 +1,10 @@
 node_modules
 .next
+dist
+release
+.DS_Store
+*.dmg
+.pnpm-store
 .env
 .env.local
 .env.development.local
