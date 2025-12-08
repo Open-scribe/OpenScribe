@@ -7,7 +7,7 @@
   "main": "packages/shell/main.js",
   "scripts": {
     "build": "next build apps/web --webpack",
-    "dev": "next dev apps/web",
+    "dev": "next dev apps/web --webpack",
     "dev:desktop": "concurrently -k \"pnpm dev\" \"pnpm electron:dev\"",
     "electron:dev": "wait-on tcp:3000 && cross-env NODE_ENV=development ELECTRON_START_URL=http://localhost:3000 electron packages/shell/main.js",
     "lint": "pnpm lint:structure && eslint --config config/eslint.config.mjs .",
