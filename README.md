@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-OpenScribe is a privacy-conscious, local-first clinical documentation assistant that helps clinicians record patient encounters, transcribe audio with Whisper, and generate structured draft clinical notes using LLMs. The tool stores all data locally by default and requires explicit clinician review and approval before any note can be used. **All AI-generated output is draft-only and must be reviewed by a licensed clinician who accepts full responsibility for accuracy and completeness.**
+OpenScribe is a privacy-conscious, local-first AI Scribe that helps clinicians record patient encounters, transcribe audio, and generate structured draft clinical notes using LLMs. The tool stores all data locally by default and requires explicit clinician review and approval before any note can be used. **All AI-generated output is draft-only and must be reviewed by a licensed clinician who accepts full responsibility for accuracy and completeness.**
 
 ## Purpose and Philosophy
 
@@ -13,405 +13,212 @@ OpenScribe exists to provide a simple, modular, privacy-conscious alternative to
 - **Modular**: Components can be swapped or extended (e.g., different LLM providers, transcription services)
 - **Transparent**: Clear boundaries between AI assistance and clinician responsibility
 
-The tool is designed for clinicians who want AI assistance without surrendering control of their data or workflow to third-party services.
+## Project Resources
 
-## Feature Summary (Current)
+- **GitHub**: [sammargolis/OpenScribe](https://github.com/sammargolis/OpenScribe)
+- **Project Board**: [Trello](https://trello.com/b/9ytGVZU4/openscribe)
+- **Maintainer**: [@sammargolis](https://github.com/sammargolis)
+- **Architecture**: [architecture.md](./architecture.md)
+- **Tests**: [packages/llm](./packages/llm/src/__tests__/), [packages/pipeline](./packages/pipeline/)
 
-The following features are implemented in v0:
+## Features
 
-- ✅ **Encounter Management**: Create new patient encounters with patient name, ID, and visit reason
-- ✅ **Audio Recording**: Browser-based audio recording with pause/resume functionality
-- ✅ **Transcription**: Audio-to-text transcription (currently simulated, designed for Whisper API integration)
-- ✅ **Note Generation**: Automatic generation of structured clinical notes from transcripts using GPT-4o
-- ✅ **Editable Draft Notes**: Structured note editor with sections (Chief Complaint, HPI, ROS, Physical Exam, Assessment, Plan)
-- ✅ **Encrypted Local Storage**: All encounters stay on-device and are AES-GCM encrypted before being written to browser storage
-- ✅ **Simple UI**: Left-hand sidebar with encounter history, right-hand side for workflow
-- ✅ **Export/Copy**: Copy notes to clipboard or export as text files
+- ✅ Record patient encounters with pause/resume
+- ✅ Audio transcription (Whisper API integration planned)
+- ✅ AI-generated structured notes (GPT-4o)
+- ✅ Editable note sections (CC, HPI, ROS, PE, Assessment, Plan)
+- ✅ AES-GCM encrypted local storage
+- ✅ Export to clipboard or text files
 
-## Demo or Screenshots
+## Quick Start
 
-*[Add GIF or screenshots showing: encounter list, recording state, note generation state, and note editor]*
+### Prerequisites
+- Node.js 18+
+- pnpm (`npm install -g pnpm`)
+- OpenAI API key (for note generation)
+
+### Installation
+
+```bash
+git clone https://github.com/sammargolis/OpenScribe.git
+cd OpenScribe
+pnpm install
+pnpm dev
+```
+
+Open `http://localhost:3000`
+
+### Environment Variables
+
+Create `apps/web/.env.local`:
+
+```
+OPENAI_API_KEY=your-key-here
+NEXT_PUBLIC_SECURE_STORAGE_KEY=<base64-encoded-32-bytes>
+```
+
+Generate the storage key: `openssl rand -base64 32`
 
 ## Roadmap
 
-### v0 (Current)
-- Core recording and transcription workflow
-- Basic note generation
-- Local storage
-- Simple UI
+### Current Status (v0)
+- ✅ Core recording, transcription, and note generation
+- ✅ AES-GCM encrypted local storage
+- ✅ Browser-based audio capture
+- 🔄 Simulated transcription (Whisper API integration in progress)
 
-### v0.1 (Planned Fixes)
-- Real Whisper API integration (currently simulated)
+### Near-term (v0.1-0.5)
+- Real Whisper API integration
 - Error handling improvements
 - Audio playback for review
-- Better transcription accuracy feedback
+- Comprehensive test coverage
+- Basic audit logging
 
-### v1 (Future Goals)
-- Multiple LLM provider support (Anthropic, local models)
+
+**Physical Controls**:
+- User responsibility (device security, physical access)
+
+See the [Trello board](https://trello.com/b/9ytGVZU4/openscribe) for detailed progress.
+
+### Future Goals (v2.0+)
+- Multiple LLM providers (Anthropic, local models)
 - Custom note templates
-- Search and filtering for encounters
-- Export to common formats (PDF, DOCX)
 - Optional cloud sync (user-controlled)
 - Multi-language support
+- mobile app
+- EHR integration
 
-### Non-Goals
-- EHR integration (out of scope)
-- Real-time collaboration
-- Mobile app (web-first)
-- HIPAA compliance certification (users must ensure their own compliance)
-- Medical device classification (documentation tool only)
+## Architecture
 
-## Architecture Overview
-
-OpenScribe is built as a Next.js application with the following components:
+See [architecture.md](./architecture.md) for complete details.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    UI Client (Next.js)                  │
+│                    UI Layer (Next.js)                   │
 │  ┌──────────────┐              ┌─────────────────────┐  │
-│  │ Encounter   │              │  Workflow Views     │  │
-│  │ List        │              │  - Idle             │  │
-│  │ (LHS)       │              │  - Recording        │  │
-│  │             │              │  - Processing       │  │
-│  │             │              │  - Note Editor      │  │
+│  │ Encounter    │              │  Workflow States    │  │
+│  │ Sidebar      │◄────────────►│  - Idle             │  │
+│  │              │              │  - Recording        │  │
+│  │              │              │  - Processing       │  │
+│  │              │              │  - Note Editor      │  │
 │  └──────────────┘              └─────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────┐
-│              Audio Pipeline (Browser)                    │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │  MediaRecorder API → Audio Blob → Server Action  │   │
-│  └──────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-                          │
-                          ▼
+│              Processing Pipeline                         │
+│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌─────┐  │
+│  │  Audio   │──►│Transcribe│──►│   LLM    │──►│Note │  │
+│  │  Ingest  │   │ (Whisper)│   │          │   │Core │  │
+│  └──────────┘   └──────────┘   └──────────┘   └─────┘  │
+│       │                                           │     │
+│       └───────────────┐         ┌─────────────────┘     │
+└───────────────────────┼─────────┼───────────────────────┘
+                        ▼         ▼
 ┌─────────────────────────────────────────────────────────┐
-│              Backend Service (Next.js Server)           │
-│  ┌──────────────┐              ┌──────────────────┐   │
-│  │ Whisper      │              │  LLM Module      │   │
-│  │ Module       │              │  (OpenAI GPT-4o) │   │
-│  │ (Planned)    │              │                  │   │
-│  └──────────────┘              └──────────────────┘   │
-└─────────────────────────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────┐
-│              Storage Model (Browser localStorage)        │
+│                  Storage Layer                           │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │  Encounters: {                                   │   │
-│  │    id, patient_name, patient_id,                │   │
-│  │    transcript_text, note_text,                   │   │
-│  │    status, created_at, updated_at                │   │
-│  │  }                                               │   │
-│  │  Audio: Stored as Blob (in-memory only)         │   │
+│  │  Encrypted LocalStorage (AES-GCM)                │   │
+│  │  - Encounters (patient data, transcripts, notes) │   │
+│  │  - Metadata (timestamps, status)                 │   │
+│  │  - Audio (in-memory only, not persisted)        │   │
 │  └──────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
 
 **Key Components:**
+- **UI Layer**: React components in `apps/web/` using Next.js App Router
+- **Audio Ingest**: Browser MediaRecorder API → WebM/MP4 blob
+- **Transcription**: OpenAI Whisper API (currently simulated)
+- **LLM**: OpenAI GPT-4o via provider-agnostic client
+- **Note Core**: Structured clinical note generation and validation
+- **Storage**: AES-GCM encrypted browser localStorage
 
-- **UI Client**: React components managing state and user interactions
-- **Audio Pipeline**: Browser MediaRecorder API captures audio, converts to Blob
-- **Whisper Module**: Transcription service (currently simulated, designed for OpenAI Whisper API)
-- **LLM Module**: OpenAI GPT-4o generates structured clinical notes from transcripts
-- **Storage Model**: Browser localStorage stores encounter metadata; audio blobs are kept in-memory during processing
-
-### Monorepo Layout
-
-The project now uses a clear apps/packages split so every responsibility has a single home:
-
-- `apps/web/` – Next.js front-end (app router) plus Electron renderer assets. All `src/` code lives inside this app.
-- `packages/pipeline/audio-ingest` … `packages/pipeline/eval` – ordered processing stages (audio ingest through evaluation).
-- `packages/ui/` – shared React components/hooks consumed by the web app.
-- `packages/storage/` – persistence helpers (secure storage + encounter repositories).
-- `packages/llm/` – provider-agnostic LLM client abstraction.
-- `packages/shell/` – Electron main process, preload script, and packaging helpers.
-- `packages/tests/` – standalone harnesses outside the pipeline when needed.
-- `config/` – central location for Next, PostCSS, shadcn, and TypeScript test config files (apps reference them via local stubs).
-- `build/` – all generated artifacts (`build/web` for Next output, `build/tests-dist` for compiled tests, `build/dist` for packaged binaries).
-
-## Installation
-
-### Prerequisites
-
-- **Node.js**: v18 or higher
-- **pnpm**: Package manager (install via `npm install -g pnpm` or use Corepack)
-- **OpenAI API Key**: Required for note generation (optional for development with simulated transcription)
-
-### Steps
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd OpenScribe
-   ```
-
-2. **Install dependencies**
-   ```bash
-   pnpm install
-   ```
-
-3. **Run the development server**
-   ```bash
-   pnpm dev
-   ```
-
-4. **Open your browser**
-   Navigate to `http://localhost:3000`
-
-5. **Configure environment variables**
-   - Copy `apps/web/.env.local.example` to `apps/web/.env.local` (or create it)
-   - Add `OPENAI_API_KEY=your-openai-key`
-   - Generate a 32-byte base64 secret and set `NEXT_PUBLIC_SECURE_STORAGE_KEY=...`
-   - These values live alongside the web app so Next.js can load them automatically
-
-## Configuration
-
-### LLM Endpoint and API Key
-
-- **Provider**: OpenAI (GPT-4o)
-- **Configuration**: Provide `OPENAI_API_KEY` via environment variables (e.g., `.env.local` or host-level secrets)
-- **Fallback**: If no API key is provided, the app attempts to use AI Gateway (may not work in all environments)
-
-### Secure Storage Key
-
-- **Variable**: `NEXT_PUBLIC_SECURE_STORAGE_KEY`
-- **Format**: Base64-encoded 32-byte secret (example: output of `openssl rand -base64 32`)
-- **Usage**: Used by the Web Crypto API to encrypt/decrypt encounter payloads before writing to `localStorage`
-- **Scope**: Bundled into both the browser build and Electron renderer to keep behavior identical
-- **Rotation**: Generate a new value for production builds and keep the secret outside of version control
-- **Location**: Loaded from `.env.local`/host environment at build time (do not commit it to the repo)
-
-### Whisper Mode
-
-- **Current Status**: Simulated (returns sample transcript)
-- **Planned**: OpenAI Whisper API integration
-- **Future**: Support for local Whisper models
-- **Configuration**: Will be configurable via UI settings
-
-### Audio Input Device
-
-- **Default**: Browser's default microphone
-- **Selection**: Managed by browser's `getUserMedia()` API
-- **Settings**: Can be changed via browser/system audio settings
-- **Format**: WebM or MP4 (browser-dependent)
-- **Sample Rate**: 16kHz (optimized for speech recognition)
+**Monorepo Structure:**
+- `apps/web/` – Next.js frontend + Electron renderer
+- `packages/pipeline/` – Audio ingest, transcription, assembly, evaluation
+- `packages/ui/` – Shared React components
+- `packages/storage/` – Encrypted storage + encounter management
+- `packages/llm/` – Provider-agnostic LLM client
+- `packages/shell/` – Electron main process
+- `config/` – Shared configuration files
+- `build/` – Build artifacts
 
 ## macOS Desktop App
 
-The Electron wrapper ships the exact same Next.js experience inside a signed macOS app. It launches the Next.js renderer in development and bundles the standalone production server for distribution.
-
-### Develop the desktop app
+Run the Electron wrapper in development:
 
 ```bash
 pnpm dev:desktop
 ```
 
-This command:
-
-- Runs the Next.js dev server on port 3000.
-- Waits for the server to be ready.
-- Launches Electron with hot reload pointing at `http://localhost:3000`.
-
-Quit the Electron window to stop both processes.
-
-### Build a production .app / .dmg
+Build a production `.app` and `.dmg`:
 
 ```bash
 pnpm build:desktop
 ```
 
-What this script does:
+Output: `dist/OpenScribe.app`, `dist/OpenScribe-0.1.0-arm64.dmg`
 
-1. `next build --webpack` with `output: 'standalone'`, so the production server can run outside Vercel.
-2. Copies `.next/static` and `public` into `.next/standalone` (needed by the standalone server).
-3. Packages everything with `electron-builder` for macOS (arm64 by default).
+## Usage
 
-Artifacts land in `dist/`:
+1. **Create Encounter**: Click microphone button, enter patient info, start recording
+2. **Record Audio**: Pause/resume as needed, monitor duration
+3. **End Recording**: Processing generates transcript and note
+4. **Edit Note**: Review AI draft, edit sections (CC, HPI, ROS, PE, Assessment, Plan)
+5. **Export**: Copy to clipboard or download as `.txt`
 
-- `dist/mac-arm64/OpenScribe.app` — runnable bundle for sideloading.
-- `dist/OpenScribe-0.1.0-arm64.dmg` — installer disk image.
-- `dist/OpenScribe-0.1.0-arm64-mac.zip` — zipped app for manual distribution.
+## Privacy & Data Handling
 
-To notarize or sign with different certificates, update the `build` block inside `package.json`.
+**Storage**: AES-GCM encrypted localStorage. Audio processed in-memory, not persisted.  
+**Transmission**: Audio → Whisper API, Transcripts → OpenAI API (note generation only)  
+**No Tracking**: Zero analytics, telemetry, or cloud sync
 
-### Storage Directory
+⚠️ **HIPAA Status**: OpenScribe is **NOT currently HIPAA compliant**. See [Roadmap](#roadmap) for compliance path.
 
-- **Location**: Browser `localStorage` (client-side only)
-- **Key**: `openscribe_encounters`
-- **Format**: JSON array of encounter objects
-- **Encryption**: AES-GCM using `NEXT_PUBLIC_SECURE_STORAGE_KEY` (32-byte base64 secret)
-- **Limitations**: 
-  - Browser storage limits (typically 5-10MB)
-  - Audio blobs are not persisted (in-memory only during processing)
-  - Data is browser-specific (not synced across devices)
+⚠️ **Clinician Responsibility**  
+- All AI notes are drafts requiring review
+- You accept full responsibility for accuracy and completeness
+- Do not use with PHI until HIPAA compliance is achieved
+- Ensure regulatory compliance for your use case
 
-## Usage Guide
+## Limitations & Disclaimers
 
-### 1. Create New Encounter
+**Not a Medical Device**: Documentation tool only, not for diagnosis or treatment  
+**Not HIPAA Certified**: Users ensure their own compliance  
+**No EHR Integration**: Standalone tool  
+**Browser Storage Limits**: ~5-10MB typical  
+**No Warranty**: Provided as-is under MIT License
 
-1. Click the microphone button on the idle screen (or "New Encounter" in the sidebar)
-2. Fill in the form:
-   - Patient Name
-   - Patient ID (optional)
-   - Visit Reason
-3. Click "Start Recording"
-
-### 2. Start Recording
-
-1. Grant microphone permissions when prompted
-2. Recording begins automatically
-3. Use pause/resume button to control recording
-4. Monitor recording duration in real-time
-
-### 3. End Recording
-
-1. Click "End Interview" button
-2. Recording stops and processing begins
-3. Audio is processed for transcription
-
-### 4. View Transcription
-
-1. After transcription completes, the transcript is available
-2. Currently shown in the processing view (will be accessible in note editor in future versions)
-
-### 5. View and Edit Note
-
-1. After note generation completes, the note editor opens automatically
-2. Review the AI-generated draft note
-3. Edit any section using the tabbed interface:
-   - **CC**: Chief Complaint
-   - **HPI**: History of Present Illness
-   - **ROS**: Review of Systems
-   - **PE**: Physical Exam
-   - **Assessment**: Clinical Assessment
-   - **Plan**: Treatment Plan
-4. Click "Save" to persist changes
-
-### 6. Copy/Export Note
-
-1. **Copy**: Click the copy icon to copy the full note to clipboard
-2. **Export**: Click the download icon to export as a `.txt` file
-3. File naming: `{patient_name}_{date}.txt`
-
-## Data Handling and Privacy
-
-### Data Storage
-
-- **Default**: All encounter data stored locally in browser `localStorage`, encrypted with AES-GCM using `NEXT_PUBLIC_SECURE_STORAGE_KEY`
-- **Audio**: Processed in-memory, not persisted to disk
-- **Transcripts**: Stored inside the encrypted encounter payload
-- **Notes**: Stored inside the encrypted encounter payload
-
-### Data Transmission
-
-- **Audio**: Sent to Whisper API (when implemented) for transcription only
-- **Transcripts**: Sent to OpenAI API for note generation only
-- **No Analytics**: No tracking, analytics, or telemetry
-- **No Cloud Sync**: No automatic cloud backup or sync (unless user explicitly configures)
-
-### Privacy Guarantees
-
-- ✅ No data collection by the application
-- ✅ No third-party analytics
-- ✅ API keys stored locally only
-- ✅ All processing happens on user's device or explicitly configured APIs
-- ⚠️ **User Responsibility**: Users must ensure their own HIPAA compliance and data handling requirements
-
-### Clinician Responsibility
-
-- **Review Required**: All AI-generated notes are drafts requiring clinician review
-- **Accuracy**: Clinician accepts full responsibility for note accuracy and completeness
-- **Legal**: Notes must meet local documentation requirements
-- **Compliance**: Users must ensure their use complies with applicable regulations (HIPAA, GDPR, etc.)
-
-## Limitations and Disclaimers
-
-### Output Limitations
-
-- **Draft Only**: All AI-generated notes are drafts and must be reviewed
-- **No Guarantee**: No guarantee of accuracy, completeness, or clinical correctness
-- **Context Limited**: AI only sees the transcript, not full patient history or context
-
-### Scope Limitations
-
-- **Not an EHR**: Does not replace Electronic Health Records systems
-- **Not a Medical Device**: Documentation tool only, not intended for diagnosis or treatment decisions
-- **Not HIPAA Certified**: Users must ensure their own compliance
-- **No Integration**: Does not integrate with existing EHR or practice management systems
-
-### Technical Limitations
-
-- **Browser Storage**: Limited by browser storage quotas
-- **Audio Persistence**: Audio recordings not persisted (in-memory only)
-- **Single User**: No multi-user or collaboration features
-- **No Offline Mode**: Requires internet for API calls (when configured)
-
-### Legal Disclaimers
-
-- **No Medical Advice**: This tool does not provide medical advice
-- **No Warranty**: Provided "as-is" without warranty
-- **User Liability**: Users are solely responsible for their use of this tool
-- **Regulatory Compliance**: Users must ensure compliance with all applicable laws and regulations
+This tool does not provide medical advice. Users are solely responsible for regulatory compliance and clinical accuracy.
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+Contributions welcome! Check the [Trello board](https://trello.com/b/9ytGVZU4/openscribe) for current tasks.
 
-### Quick Start for Contributors
+**How to Contribute:**
+1. Open a GitHub issue or discussion first
+2. Fork and create a descriptive branch (`feature/whisper-integration`)
+3. Use TypeScript with full type annotations
+4. Follow existing code style
+5. Submit a PR
 
-1. **Open Issues**: Use GitHub Issues to report bugs or propose features
-2. **Branch Naming**: Use descriptive branch names (e.g., `feature/whisper-integration`, `fix/audio-recording`)
-3. **Coding Standards**: 
-   - TypeScript for all code
-   - Follow existing code style
-   - Add types for all functions and components
-4. **Propose Features**: Open a discussion or issue before major changes
-
-### Areas Needing Contribution
-
-- Whisper API integration
-- Error handling improvements
-- Testing infrastructure
-- Documentation improvements
-- Accessibility enhancements
-- Multi-language support
+**Priority Areas**: Whisper integration, error handling, testing, accessibility, documentation
 
 ## License
 
-This project is licensed under the **MIT License**. See [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) for details.
 
-The MIT License allows for:
-- Commercial use
-- Modification
-- Distribution
-- Private use
+Free for commercial use, modification, distribution, and private use. No warranty provided.
 
-With the conditions:
-- License and copyright notice must be included
-- No liability or warranty provided
-
-## Citation / Attribution
-
-If you use OpenScribe in research or academic work, please cite:
+## Citation
 
 ```
 OpenScribe: A Privacy-Conscious Clinical Documentation Assistant
-https://github.com/sammargolis/OpenScribe
+GitHub: https://github.com/sammargolis/OpenScribe
+Maintainer: Sam Margolis (@sammargolis)
 ```
-
-For derivative works or forks, please maintain attribution to the original project.
-
-## Maintainers and Contact
-
-- **Maintainer**: [Your GitHub Handle]
-- **GitHub**: [https://github.com/sammargolis](https://github.com/sammargolis)
-- **Issues**: [https://github.com/your-org/OpenScribe/issues](https://github.com/sammargolis/OpenScribe/issues)
-- **Discussions**: [https://github.com/your-org/OpenScribe/discussions](https://github.com/sammargolis/OpenScribe/discussions)
-
-For questions, bug reports, or feature requests, please use GitHub Issues or Discussions.
 
 ---
 
-**Important**: This tool generates draft clinical notes that require review by a licensed clinician. The clinician accepts full responsibility for the accuracy and completeness of all documentation produced using this tool.
+**⚠️ Important**: AI-generated notes require review by a licensed clinician who accepts full responsibility for accuracy and completeness.
