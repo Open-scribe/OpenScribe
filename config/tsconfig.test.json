@@ -14,7 +14,9 @@
   "include": [
     "../packages/pipeline/eval/src/**/*.ts",
     "../packages/pipeline/audio-ingest/src/**/*.ts",
-    "../packages/pipeline/transcribe/src/**/*.ts"
+    "../packages/pipeline/transcribe/src/**/*.ts",
+    "../packages/pipeline/note-core/src/**/*.ts",
+    "../packages/llm/src/**/*.ts"
   ],
   "exclude": [
     "node_modules",

@@ -2,13 +2,12 @@
 
 import { useCallback, useEffect, useRef } from "react"
 import {
-  PendingSegment,
+  type PendingSegment,
   SegmentUploadController,
-  UploadError,
   type SegmentUploadControllerOptions,
 } from "./segment-upload-controller"
 
-interface UseSegmentUploadOptions extends SegmentUploadControllerOptions {}
+type UseSegmentUploadOptions = SegmentUploadControllerOptions
 
 export function useSegmentUpload(sessionId: string | null, options?: UseSegmentUploadOptions) {
   const controllerRef = useRef<SegmentUploadController | null>(null)

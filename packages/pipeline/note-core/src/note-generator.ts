@@ -1,4 +1,5 @@
-import { runLLMRequest } from "@llm"
+import { runLLMRequest, prompts } from "@llm"
+import { EMPTY_NOTE, serializeNote } from "./clinical-models/clinical-note"
 
 export interface ClinicalNoteRequest {
   transcript: string
@@ -6,42 +7,26 @@ export interface ClinicalNoteRequest {
   visit_reason: string
 }
 
+/**
+ * Strips markdown code fences from LLM response
+ * Handles cases where Claude returns ```json ... ``` wrapped responses
+ */
+function stripMarkdownFences(text: string): string {
+  const trimmed = text.trim()
+  
+  // Remove ```json ... ``` or ``` ... ``` wrappers
+  const jsonFencePattern = /^```(?:json)?\s*\n?([\s\S]*?)\n?```$/
+  const match = trimmed.match(jsonFencePattern)
+  
+  if (match) {
+    return match[1].trim()
+  }
+  
+  return trimmed
+}
+
 export async function createClinicalNoteText(params: ClinicalNoteRequest): Promise<string> {
   const { transcript, patient_name, visit_reason } = params
-
-  const systemPrompt = `You are a clinical documentation assistant that converts patient encounter transcripts into structured clinical notes.
-
-IMPORTANT INSTRUCTIONS:
-- Output ONLY plain text in the exact format shown below
-- Do NOT use JSON, markdown code blocks, or any special formatting
-- Use ONLY information explicitly stated in the transcript itself
-- Do NOT use patient name or visit reason to infer or invent any information
-- If a section has no relevant information in the transcript, leave it completely empty (just the section header followed by a blank line)
-- Do NOT add placeholder text like "Not discussed", "Not documented", "Not performed", or any other defaults
-- Do NOT infer, assume, or invent information - only include what is explicitly stated in the transcript
-- If the transcript is empty or has no relevant content, ALL sections must be left empty
-- Use professional medical terminology while keeping notes concise
-- This is a DRAFT that requires clinician review
-
-OUTPUT FORMAT (follow exactly):
-
-Chief Complaint:
-[Primary reason for visit in 1-2 sentences, or leave empty if not stated]
-
-HPI:
-[History of present illness - onset, duration, character, severity, modifying factors, or leave empty if not stated]
-
-ROS:
-[Review of systems - symptoms mentioned, organized by system, or leave empty if not stated]
-
-Physical Exam:
-[Any exam findings mentioned, or leave empty if not stated]
-
-Assessment:
-[Clinical assessment/diagnosis mentioned by clinician, or leave empty if not stated]
-
-Plan:
-[Treatment plan discussed with patient, or leave empty if not stated]`
 
   console.log("=".repeat(80))
   console.log("GENERATING CLINICAL NOTE")
@@ -52,22 +37,7 @@ Plan:
 
   if (!transcript || transcript.trim().length === 0) {
     console.log("⚠️  Transcript is empty - returning empty note structure")
-    const emptyNote = `Chief Complaint:
-
-
-HPI:
-
-
-ROS:
-
-
-Physical Exam:
-
-
-Assessment:
-
-
-Plan:`
+    const emptyNote = serializeNote(EMPTY_NOTE)
     console.log("=".repeat(80))
     console.log("FINAL CLINICAL NOTE (EMPTY):")
     console.log("-".repeat(80))
@@ -82,33 +52,71 @@ Plan:`
   console.log(transcript)
   console.log("-".repeat(80))
 
-  const userPrompt = `Convert this clinical encounter transcript into a structured note. Use ONLY the information explicitly stated in the transcript below. Do not infer or invent any information.
-
-Patient Name: ${patient_name || "Not provided"} (for reference only - do not use to infer information)
-Visit Reason: ${visit_reason || "Not provided"} (for reference only - do not use to infer information)
-
-TRANSCRIPT:
-${transcript}
-
-Generate the clinical note now, following the exact format specified. Only include information explicitly stated in the transcript above.`
+  // Use versioned prompts
+  const systemPrompt = prompts.clinicalNote.currentVersion.getSystemPrompt()
+  const userPrompt = prompts.clinicalNote.currentVersion.getUserPrompt({
+    transcript,
+    patient_name,
+    visit_reason,
+  })
 
   try {
     console.log("🤖 Calling LLM to generate clinical note...")
+    console.log(`📌 Using prompt version: ${prompts.clinicalNote.currentVersion.PROMPT_VERSION}`)
+    console.log(`🤖 Model: ${prompts.clinicalNote.currentVersion.MODEL_OPTIMIZED_FOR}`)
+    
     const text = await runLLMRequest({
       system: systemPrompt,
       prompt: userPrompt,
-      model: "gpt-4o",
+      model: prompts.clinicalNote.currentVersion.MODEL_OPTIMIZED_FOR,
+      jsonSchema: {
+        name: "ClinicalNote",
+        schema: prompts.clinicalNote.currentVersion.CLINICAL_NOTE_SCHEMA,
+      },
     })
+
+    // Strip markdown fences if present
+    const cleanedText = stripMarkdownFences(text)
+
+    let formattedResponse: string
+    try {
+      const parsed = JSON.parse(cleanedText)
+      
+      // Validate all required fields are present and are strings
+      const requiredFields = ["chief_complaint", "hpi", "ros", "physical_exam", "assessment", "plan"]
+      const missingFields = requiredFields.filter((field) => !(field in parsed))
+      
+      if (missingFields.length > 0) {
+        console.warn(`⚠️  Missing required fields: ${missingFields.join(", ")}`)
+        throw new Error(`Invalid note structure: missing fields ${missingFields.join(", ")}`)
+      }
+
+      // Ensure all fields are strings
+      for (const field of requiredFields) {
+        if (typeof parsed[field] !== "string") {
+          console.warn(`⚠️  Field '${field}' is not a string: ${typeof parsed[field]}`)
+          parsed[field] = String(parsed[field] || "")
+        }
+      }
+
+      formattedResponse = JSON.stringify(parsed, null, 2)
+    } catch (parseError) {
+      console.error("❌ Failed to parse LLM response as JSON:", parseError)
+      console.log("Raw response:", text)
+      console.log("Cleaned response:", cleanedText)
+      console.warn("⚠️  Received non-JSON response from LLM, returning empty note")
+      formattedResponse = serializeNote(EMPTY_NOTE)
+    }
 
     console.log("=".repeat(80))
     console.log("FINAL CLINICAL NOTE:")
     console.log("=".repeat(80))
-    console.log(text)
+    console.log(formattedResponse)
     console.log("=".repeat(80))
-    console.log(`Note length: ${text.length} characters`)
+    console.log(`Note length: ${formattedResponse.length} characters`)
     console.log("=".repeat(80))
 
-    return text
+    return formattedResponse
   } catch (error) {
     console.error("❌ AI generation error:", error)
     throw new Error(`Failed to generate note: ${error instanceof Error ? error.message : "Unknown error"}`)

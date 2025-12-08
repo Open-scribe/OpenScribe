@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import type { Encounter } from "@storage/types"
-import { type ClinicalNote, parseNoteText, formatNoteText } from "@note-core"
+import { type ClinicalNote, parseNoteText, formatNoteText, serializeNote } from "@note-core"
 import { Button } from "@ui/lib/ui/button"
 import { Textarea } from "@ui/lib/ui/textarea"
 import { Badge } from "@ui/lib/ui/badge"
@@ -44,8 +44,8 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
   }
 
   const handleSave = () => {
-    const formatted = formatNoteText(note)
-    onSave(formatted)
+    const serialized = serializeNote(note)
+    onSave(serialized)
     setHasChanges(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)

@@ -41,7 +41,6 @@ test("sample MP3 flows through the pipeline checkpoints", { timeout: 60_000 }, a
   }
 
   assert(mp3Buffer.byteLength > 0, "sample audio file should not be empty")
-  // @ts-ignore compiled test runtime loads emitted JS
   const audioProcessing = (await import("../../../audio-ingest/src/capture/audio-processing.js")) as typeof import("../../../audio-ingest/src/capture/audio-processing")
   const {
     DEFAULT_OVERLAP_MS,
@@ -54,18 +53,14 @@ test("sample MP3 flows through the pipeline checkpoints", { timeout: 60_000 }, a
     createWavBlob,
     drainSegments,
   } = audioProcessing
-  // @ts-ignore compiled test runtime loads emitted JS
   const transcribeCore = (await import("../../../transcribe/src/core/wav.js")) as typeof import("../../../transcribe/src/core/wav")
   const { parseWavHeader } = transcribeCore
-  // @ts-ignore compiled test runtime loads emitted JS
   const whisperProvider = (await import("../../../transcribe/src/providers/whisper-transcriber.js")) as typeof import("../../../transcribe/src/providers/whisper-transcriber")
   const { transcribeWavBuffer } = whisperProvider
-  // @ts-ignore compiled test runtime loads emitted JS
   const assemblyModule = (await import("../../../assemble/src/session-store.js")) as typeof import("../../../assemble/src/session-store")
   const { transcriptionSessionStore } = assemblyModule
-  // @ts-ignore compiled test runtime loads emitted JS
   const noteCoreModule = (await import("../../../note-core/src/clinical-models/clinical-note.js")) as typeof import("../../../note-core/src/clinical-models/clinical-note")
-  const { formatNoteText, parseNoteText } = noteCoreModule
+  const { serializeNote, parseNoteText } = noteCoreModule
   const segmentDurationMs = DEFAULT_SEGMENT_MS
   const overlapMs = DEFAULT_OVERLAP_MS
   const segmentSamples = Math.round((segmentDurationMs / 1000) * TARGET_SAMPLE_RATE)
@@ -190,7 +185,7 @@ test("sample MP3 flows through the pipeline checkpoints", { timeout: 60_000 }, a
   assert(stitchedSnapshots.length >= transcripts.length, "assembly should publish stitched updates per segment")
   progress.push(`assemble:${combinedTranscript.length}`)
 
-  const noteText = formatNoteText({
+  const noteText = serializeNote({
     chief_complaint: transcripts[0]?.text ?? "",
     hpi: combinedTranscript,
     ros: "",

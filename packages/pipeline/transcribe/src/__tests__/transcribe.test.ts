@@ -147,9 +147,7 @@ test("SegmentUploadController retries transient errors and surfaces final failur
   assert.deepEqual(waitCalls, [250, 500], "Should wait with incremental backoff for retries")
   assert.equal(errors.length, 0, "Successful retry should not surface an error")
 
-  let failureAttempts = 0
   const failingFetch: typeof fetch = async () => {
-    failureAttempts += 1
     return new Response(JSON.stringify({ error: { code: "validation_error", message: "bad segment" } }), { status: 400 })
   }
 

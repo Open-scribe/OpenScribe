@@ -17,28 +17,47 @@ export const EMPTY_NOTE: ClinicalNote = {
 }
 
 export function parseNoteText(noteText: string): ClinicalNote {
-  const sections: ClinicalNote = { ...EMPTY_NOTE }
-
-  const patterns = {
-    chief_complaint: /Chief Complaint:\s*([\s\S]*?)(?=(?:HPI:|History of Present Illness:|$))/i,
-    hpi: /(?:HPI|History of Present Illness):\s*([\s\S]*?)(?=(?:ROS:|Review of Systems:|$))/i,
-    ros: /(?:ROS|Review of Systems):\s*([\s\S]*?)(?=(?:Physical Exam:|PE:|$))/i,
-    physical_exam: /(?:Physical Exam|PE):\s*([\s\S]*?)(?=(?:Assessment:|$))/i,
-    assessment: /Assessment:\s*([\s\S]*?)(?=(?:Plan:|$))/i,
-    plan: /Plan:\s*([\s\S]*?)$/i,
+  if (!noteText || typeof noteText !== "string") {
+    return { ...EMPTY_NOTE }
   }
 
-  for (const [key, pattern] of Object.entries(patterns)) {
-    const match = noteText.match(pattern)
-    if (match && match[1]) {
-      const content = match[1].trim()
-      if (content) {
-        sections[key as keyof ClinicalNote] = content
-      }
+  try {
+    // Strip markdown code fences if present (```json ... ``` or ``` ... ```)
+    let cleanText = noteText.trim()
+    const jsonFencePattern = /^```(?:json)?\s*\n?([\s\S]*?)\n?```$/
+    const match = cleanText.match(jsonFencePattern)
+    
+    if (match) {
+      cleanText = match[1].trim()
     }
-  }
 
-  return sections
+    const parsed = JSON.parse(cleanText) as Partial<ClinicalNote>
+    return {
+      chief_complaint: typeof parsed.chief_complaint === "string" ? parsed.chief_complaint : "",
+      hpi: typeof parsed.hpi === "string" ? parsed.hpi : "",
+      ros: typeof parsed.ros === "string" ? parsed.ros : "",
+      physical_exam: typeof parsed.physical_exam === "string" ? parsed.physical_exam : "",
+      assessment: typeof parsed.assessment === "string" ? parsed.assessment : "",
+      plan: typeof parsed.plan === "string" ? parsed.plan : "",
+    }
+  } catch {
+    return { ...EMPTY_NOTE }
+  }
+}
+
+export function serializeNote(note: ClinicalNote): string {
+  return JSON.stringify(
+    {
+      chief_complaint: note.chief_complaint || "",
+      hpi: note.hpi || "",
+      ros: note.ros || "",
+      physical_exam: note.physical_exam || "",
+      assessment: note.assessment || "",
+      plan: note.plan || "",
+    },
+    null,
+    2,
+  )
 }
 
 export function formatNoteText(note: ClinicalNote): string {
