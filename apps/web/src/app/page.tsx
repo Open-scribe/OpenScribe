@@ -2,11 +2,12 @@
 
 import { useState, useCallback, useRef, useEffect } from "react"
 import type { Encounter } from "@storage/types"
-import { useEncounters, EncounterList, IdleView, NewEncounterForm, RecordingView, ProcessingView, ErrorBoundary, PermissionsDialog } from "@ui"
+import { useEncounters, EncounterList, IdleView, NewEncounterForm, RecordingView, ProcessingView, ErrorBoundary, PermissionsDialog, SettingsDialog, SettingsBar } from "@ui"
 import { NoteEditor } from "@note-rendering"
 import { useAudioRecorder, type RecordedSegment, warmupMicrophonePermission, warmupSystemAudioPermission } from "@audio"
 import { useSegmentUpload } from "@transcription"
 import { generateClinicalNote } from "@/app/actions"
+import { getPreferences, setPreferences, type NoteLength } from "@storage"
 
 type ViewState =
   | { type: "idle" }
@@ -36,6 +37,14 @@ function HomePageContent() {
 
   const [showPermissionsDialog, setShowPermissionsDialog] = useState(false)
   const permissionCheckInProgressRef = useRef(false)
+
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false)
+  const [noteLength, setNoteLengthState] = useState<NoteLength>("long")
+
+  useEffect(() => {
+    const prefs = getPreferences()
+    setNoteLengthState(prefs.noteLength)
+  }, [])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -91,6 +100,19 @@ function HomePageContent() {
     // Warmup permissions after dialog is complete
     void warmupMicrophonePermission()
     void warmupSystemAudioPermission()
+  }
+
+  const handleOpenSettings = () => {
+    setShowSettingsDialog(true)
+  }
+
+  const handleCloseSettings = () => {
+    setShowSettingsDialog(false)
+  }
+
+  const handleNoteLengthChange = (length: NoteLength) => {
+    setNoteLengthState(length)
+    setPreferences({ noteLength: length })
   }
 
   const { enqueueSegment, resetQueue } = useSegmentUpload(sessionId, {
@@ -175,6 +197,7 @@ function HomePageContent() {
       console.log(`Encounter ID: ${encounterId}`)
       console.log(`Patient: ${patientName || "Unknown"}`)
       console.log(`Visit Reason: ${visitReason || "Not provided"}`)
+      console.log(`Note Length: ${noteLength}`)
       console.log(`Transcript length: ${transcript.length} characters`)
       console.log("=".repeat(80) + "\n")
 
@@ -184,6 +207,7 @@ function HomePageContent() {
           transcript,
           patient_name: patientName,
           visit_reason: visitReason,
+          noteLength,
         })
         await updateEncounter(encounterId, {
           note_text: note,
@@ -203,7 +227,7 @@ function HomePageContent() {
         await refresh()
       }
     },
-    [encounters, refresh, updateEncounter],
+    [encounters, noteLength, refresh, updateEncounter],
   )
 
   const handleFinalEvent = useCallback(
@@ -468,6 +492,12 @@ function HomePageContent() {
   return (
     <>
       {showPermissionsDialog && <PermissionsDialog onComplete={handlePermissionsComplete} />}
+      <SettingsDialog
+        isOpen={showSettingsDialog}
+        onClose={handleCloseSettings}
+        noteLength={noteLength}
+        onNoteLengthChange={handleNoteLengthChange}
+      />
       <div className="flex h-screen w-screen overflow-hidden bg-background">
         <div className="flex h-full w-72 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar">
           <EncounterList
@@ -478,6 +508,7 @@ function HomePageContent() {
             onDeleteEncounter={handleDeleteEncounter}
             disabled={view.type === "recording"}
           />
+          <SettingsBar onOpenSettings={handleOpenSettings} />
         </div>
         <main className="flex flex-1 flex-col overflow-hidden bg-background">
           {renderMainContent()}

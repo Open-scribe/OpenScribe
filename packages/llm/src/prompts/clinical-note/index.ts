@@ -12,4 +12,4 @@ export const currentVersion = v1
 export { v1 }
 
 // Re-export types
-export type { ClinicalNotePromptParams } from "./v1"
+export type { ClinicalNotePromptParams, NoteLength } from "./v1"

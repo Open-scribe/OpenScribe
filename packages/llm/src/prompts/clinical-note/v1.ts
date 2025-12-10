@@ -3,10 +3,13 @@
  * Optimized for Claude models with JSON output
  */
 
+export type NoteLength = "short" | "long"
+
 export interface ClinicalNotePromptParams {
   transcript: string
   patient_name?: string
   visit_reason?: string
+  noteLength?: NoteLength
 }
 
 export const PROMPT_VERSION = "v1"
@@ -52,8 +55,22 @@ export const CLINICAL_NOTE_SCHEMA = {
  * System prompt for clinical note generation
  * Emphasizes Claude's strengths: careful reasoning, medical knowledge, and structured output
  */
-export function getSystemPrompt(): string {
+export function getSystemPrompt(noteLength: NoteLength = "long"): string {
+  const lengthGuidance = noteLength === "short" 
+    ? `NOTE LENGTH: SHORT
+- Focus on key findings and critical information only
+- Use concise language and brief descriptions
+- Omit minor details or negative findings unless clinically significant
+- Each section should be 1-3 sentences when possible`
+    : `NOTE LENGTH: COMPREHENSIVE
+- Include all relevant clinical details
+- Provide thorough descriptions and context
+- Document both positive and pertinent negative findings
+- Use complete sentences and organized paragraphs`
+
   return `You are an expert clinical documentation assistant with deep medical knowledge. Your role is to convert patient encounter transcripts into accurate, well-structured clinical notes.
+
+${lengthGuidance}
 
 CORE PRINCIPLES:
 - Accuracy: Only document information explicitly stated in the transcript

@@ -1,10 +1,13 @@
 import { runLLMRequest, prompts } from "@llm"
 import { EMPTY_NOTE, serializeNote } from "./clinical-models/clinical-note"
 
+export type NoteLength = "short" | "long"
+
 export interface ClinicalNoteRequest {
   transcript: string
   patient_name: string
   visit_reason: string
+  noteLength?: NoteLength
 }
 
 /**
@@ -26,13 +29,14 @@ function stripMarkdownFences(text: string): string {
 }
 
 export async function createClinicalNoteText(params: ClinicalNoteRequest): Promise<string> {
-  const { transcript, patient_name, visit_reason } = params
+  const { transcript, patient_name, visit_reason, noteLength = "long" } = params
 
   console.log("=".repeat(80))
   console.log("GENERATING CLINICAL NOTE")
   console.log("=".repeat(80))
   console.log(`Patient Name: ${patient_name || "Not provided"}`)
   console.log(`Visit Reason: ${visit_reason || "Not provided"}`)
+  console.log(`Note Length: ${noteLength}`)
   console.log(`Transcript length: ${transcript.length} characters`)
 
   if (!transcript || transcript.trim().length === 0) {
@@ -53,11 +57,12 @@ export async function createClinicalNoteText(params: ClinicalNoteRequest): Promi
   console.log("-".repeat(80))
 
   // Use versioned prompts
-  const systemPrompt = prompts.clinicalNote.currentVersion.getSystemPrompt()
+  const systemPrompt = prompts.clinicalNote.currentVersion.getSystemPrompt(noteLength)
   const userPrompt = prompts.clinicalNote.currentVersion.getUserPrompt({
     transcript,
     patient_name,
     visit_reason,
+    noteLength,
   })
 
   try {
