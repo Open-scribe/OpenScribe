@@ -122,8 +122,11 @@ function HomePageContent() {
   })
 
   const cleanupSession = useCallback(() => {
-    eventSourceRef.current?.close()
-    eventSourceRef.current = null
+    console.log('[Cleanup] Closing EventSource connection')
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close()
+      eventSourceRef.current = null
+    }
     sessionIdRef.current = null
     setSessionId(null)
     resetQueue()
@@ -165,6 +168,12 @@ function HomePageContent() {
     }
   }, [recordingError])
 
+  // Stable ref for updateEncounter to avoid EventSource recreation
+  const updateEncounterRef = useRef(updateEncounter)
+  useEffect(() => {
+    updateEncounterRef.current = updateEncounter
+  }, [updateEncounter])
+
   const handleSegmentEvent = useCallback(
     (event: MessageEvent) => {
       try {
@@ -176,18 +185,29 @@ function HomePageContent() {
         if (!transcript) return
         const encounterId = currentEncounterIdRef.current
         if (encounterId) {
-          void updateEncounter(encounterId, { transcript_text: transcript })
+          void updateEncounterRef.current(encounterId, { transcript_text: transcript })
         }
       } catch (error) {
         console.error("Failed to parse segment event", error)
       }
     },
-    [updateEncounter],
+    [], // No dependencies - uses refs instead
   )
+
+  // Stable refs to avoid EventSource recreation
+  const encountersRef = useRef(encounters)
+  const noteLengthRef = useRef(noteLength)
+  const refreshRef = useRef(refresh)
+  
+  useEffect(() => {
+    encountersRef.current = encounters
+    noteLengthRef.current = noteLength
+    refreshRef.current = refresh
+  }, [encounters, noteLength, refresh])
 
   const processEncounterForNoteGeneration = useCallback(
     async (encounterId: string, transcript: string) => {
-      const enc = encounters.find((e) => e.id === encounterId)
+      const enc = encountersRef.current.find((e) => e.id === encounterId)
       const patientName = enc?.patient_name || ""
       const visitReason = enc?.visit_reason || ""
 
@@ -197,7 +217,7 @@ function HomePageContent() {
       console.log(`Encounter ID: ${encounterId}`)
       console.log(`Patient: ${patientName || "Unknown"}`)
       console.log(`Visit Reason: ${visitReason || "Not provided"}`)
-      console.log(`Note Length: ${noteLength}`)
+      console.log(`Note Length: ${noteLengthRef.current}`)
       console.log(`Transcript length: ${transcript.length} characters`)
       console.log("=".repeat(80) + "\n")
 
@@ -207,13 +227,13 @@ function HomePageContent() {
           transcript,
           patient_name: patientName,
           visit_reason: visitReason,
-          noteLength,
+          noteLength: noteLengthRef.current,
         })
-        await updateEncounter(encounterId, {
+        await updateEncounterRef.current(encounterId, {
           note_text: note,
           status: "completed",
         })
-        await refresh()
+        await refreshRef.current()
         setNoteGenerationStatus("done")
         console.log("✅ Clinical note saved to encounter")
         console.log("\n" + "=".repeat(80))
@@ -223,11 +243,11 @@ function HomePageContent() {
       } catch (err) {
         console.error("❌ Note generation failed:", err)
         setNoteGenerationStatus("failed")
-        await updateEncounter(encounterId, { status: "note_generation_failed" })
-        await refresh()
+        await updateEncounterRef.current(encounterId, { status: "note_generation_failed" })
+        await refreshRef.current()
       }
     },
-    [encounters, noteLength, refresh, updateEncounter],
+    [], // No dependencies - uses refs instead
   )
 
   const handleFinalEvent = useCallback(
@@ -241,8 +261,8 @@ function HomePageContent() {
         const encounterId = currentEncounterIdRef.current
         if (encounterId) {
           void (async () => {
-            await updateEncounter(encounterId, { transcript_text: transcript })
-            await refresh()
+            await updateEncounterRef.current(encounterId, { transcript_text: transcript })
+            await refreshRef.current()
             await processEncounterForNoteGeneration(encounterId, transcript)
           })()
         }
@@ -251,7 +271,7 @@ function HomePageContent() {
         console.error("Failed to parse final transcript event", error)
       }
     },
-    [cleanupSession, processEncounterForNoteGeneration, refresh, updateEncounter],
+    [cleanupSession, processEncounterForNoteGeneration], // Minimal stable dependencies
   )
 
   const handleStreamError = useCallback((event: MessageEvent | Event) => {
@@ -261,6 +281,8 @@ function HomePageContent() {
 
   useEffect(() => {
     if (!sessionId) return
+    
+    console.log('[EventSource] Connecting to session:', sessionId)
     const source = new EventSource(`/api/transcription/stream/${sessionId}`)
     eventSourceRef.current = source
 
@@ -273,6 +295,7 @@ function HomePageContent() {
     source.addEventListener("error", errorListener)
 
     return () => {
+      console.log('[EventSource] Cleanup: closing connection for session:', sessionId)
       source.removeEventListener("segment", segmentListener)
       source.removeEventListener("final", finalListener)
       source.removeEventListener("error", errorListener)
@@ -282,6 +305,36 @@ function HomePageContent() {
       }
     }
   }, [handleFinalEvent, handleSegmentEvent, handleStreamError, sessionId])
+  
+  // Cleanup EventSource on page unload/refresh
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      console.log('[BeforeUnload] Cleaning up EventSource')
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+        eventSourceRef.current = null
+      }
+    }
+    
+    const handleVisibilityChange = () => {
+      // If page becomes hidden and we're not actively recording, cleanup
+      if (document.hidden && view.type !== 'recording') {
+        console.log('[VisibilityChange] Page hidden, cleaning up EventSource')
+        if (eventSourceRef.current) {
+          eventSourceRef.current.close()
+          eventSourceRef.current = null
+        }
+      }
+    }
+    
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [view.type])
 
   const startNewSession = useCallback((id: string) => {
     sessionIdRef.current = id

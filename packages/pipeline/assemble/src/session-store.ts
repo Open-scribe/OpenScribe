@@ -54,6 +54,46 @@ function trimOverlapText(previousText: string, nextText: string): string {
 
 class TranscriptionSessionStore {
   private sessions: Map<string, SessionRecord> = new Map()
+  private cleanupInterval: NodeJS.Timeout | null = null
+  private readonly SESSION_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
+  private sessionTimestamps: Map<string, number> = new Map()
+
+  constructor() {
+    // Run cleanup every 5 minutes
+    this.cleanupInterval = setInterval(() => this.cleanupOldSessions(), 5 * 60 * 1000)
+  }
+
+  private cleanupOldSessions() {
+    const now = Date.now()
+    const sessionsToDelete: string[] = []
+
+    for (const [sessionId, timestamp] of this.sessionTimestamps.entries()) {
+      const session = this.sessions.get(sessionId)
+      
+      // Clean up if:
+      // 1. Session is older than timeout
+      // 2. Session is completed or error
+      // 3. No active listeners
+      if (
+        now - timestamp > this.SESSION_TIMEOUT_MS &&
+        session &&
+        (session.status === 'completed' || session.status === 'error') &&
+        session.listeners.size === 0
+      ) {
+        sessionsToDelete.push(sessionId)
+      }
+    }
+
+    for (const sessionId of sessionsToDelete) {
+      console.log(`[SessionStore] Cleaning up old session: ${sessionId}`)
+      this.sessions.delete(sessionId)
+      this.sessionTimestamps.delete(sessionId)
+    }
+
+    if (sessionsToDelete.length > 0) {
+      console.log(`[SessionStore] Cleaned up ${sessionsToDelete.length} sessions. Active sessions: ${this.sessions.size}`)
+    }
+  }
 
   getSession(sessionId: string): SessionRecord {
     let session = this.sessions.get(sessionId)
@@ -66,6 +106,8 @@ class TranscriptionSessionStore {
         listeners: new Set(),
       }
       this.sessions.set(sessionId, session)
+      this.sessionTimestamps.set(sessionId, Date.now())
+      console.log(`[SessionStore] Created new session: ${sessionId}. Total sessions: ${this.sessions.size}`)
     }
     return session
   }
@@ -73,6 +115,7 @@ class TranscriptionSessionStore {
   subscribe(sessionId: string, listener: (event: TranscriptionEvent) => void): () => void {
     const session = this.getSession(sessionId)
     session.listeners.add(listener)
+    console.log(`[SessionStore] Subscriber added to session ${sessionId}. Total listeners: ${session.listeners.size}`)
 
     // Emit the current status immediately
     listener({
@@ -87,6 +130,7 @@ class TranscriptionSessionStore {
 
     return () => {
       session.listeners.delete(listener)
+      console.log(`[SessionStore] Subscriber removed from session ${sessionId}. Remaining listeners: ${session.listeners.size}`)
     }
   }
 
@@ -145,6 +189,8 @@ class TranscriptionSessionStore {
     const session = this.getSession(sessionId)
     session.finalTranscript = transcript
     session.status = "completed"
+    this.sessionTimestamps.set(sessionId, Date.now()) // Update timestamp on completion
+    console.log(`[SessionStore] Session ${sessionId} completed with ${transcript.length} chars`)
     this.emit(session, {
       event: "final",
       data: {

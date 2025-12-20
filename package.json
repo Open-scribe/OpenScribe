@@ -7,9 +7,9 @@
   "main": "packages/shell/main.js",
   "scripts": {
     "build": "next build apps/web --webpack",
-    "dev": "next dev apps/web --webpack",
+    "dev": "next dev apps/web --webpack -p 3001",
     "dev:desktop": "concurrently -k \"pnpm dev\" \"pnpm electron:dev\"",
-    "electron:dev": "wait-on tcp:3000 && cross-env NODE_ENV=development ELECTRON_START_URL=http://localhost:3000 electron packages/shell/main.js",
+    "electron:dev": "wait-on tcp:3001 && cross-env NODE_ENV=development ELECTRON_START_URL=http://localhost:3001 electron packages/shell/main.js",
     "lint": "pnpm lint:structure && eslint --config config/eslint.config.mjs .",
     "lint:structure": "node config/scripts/check-structure.mjs",
     "start": "next start apps/web",
@@ -58,6 +58,7 @@
     "cmdk": "1.0.4",
     "date-fns": "latest",
     "embla-carousel-react": "8.5.1",
+    "get-port": "5.1.1",
     "input-otp": "1.4.1",
     "lucide-react": "^0.454.0",
     "next": "16.0.3",
@@ -81,6 +82,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "asar": "^3.2.0",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "electron": "^39.2.5",
@@ -101,8 +103,14 @@
   "build": {
     "appId": "com.openscribe.desktop",
     "productName": "OpenScribe",
+    "directories": {
+      "output": "build/dist"
+    },
+    "icon": "build/icon.icns",
     "asarUnpack": [
-      "build/web/**"
+      "build/web/**",
+      "node_modules/@anthropic-ai/**",
+      "node_modules/**/*.node"
     ],
     "mac": {
       "category": "public.app-category.productivity",
@@ -110,6 +118,7 @@
         "dmg",
         "zip"
       ],
+      "icon": "build/icon.icns",
       "extendInfo": {
         "NSMicrophoneUsageDescription": "OpenScribe captures clinician and patient speech to document visits accurately."
       }
@@ -117,12 +126,18 @@
     "files": [
       "packages/shell/**/*",
       "package.json",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "!node_modules/.cache/**/*"
     ],
     "extraResources": [
       {
         "from": "build/web/standalone",
         "to": "next"
+      },
+      {
+        "from": "build/web",
+        "to": "build/web",
+        "filter": ["**/*", "!standalone/**"]
       }
     ]
   },
