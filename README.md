@@ -131,7 +131,7 @@ See [architecture.md](./architecture.md) for complete details.
 - **UI Layer**: React components in `apps/web/` using Next.js App Router
 - **Audio Ingest**: Browser MediaRecorder API → WebM/MP4 blob
 - **Transcription**: OpenAI Whisper API
-- **LLM**: Provider-agnostic client
+- **LLM**: Provider-agnostic client (defaults to Anthropic Claude via `packages/llm`)
 - **Note Core**: Structured clinical note generation and validation
 - **Storage**: AES-GCM encrypted browser localStorage
 
@@ -172,7 +172,7 @@ Output: `dist/OpenScribe.app`, `dist/OpenScribe-0.1.0-arm64.dmg`
 ## Privacy & Data Handling
 
 **Storage**: AES-GCM encrypted localStorage. Audio processed in-memory, not persisted.  
-**Transmission**: Audio → Whisper API, Transcripts → OpenAI API (note generation only)  
+**Transmission**: Audio → Whisper API (transcription), transcripts → Anthropic Claude (note generation only)  
 **No Tracking**: Zero analytics, telemetry, or cloud sync
 
 

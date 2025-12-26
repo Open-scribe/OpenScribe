@@ -107,9 +107,9 @@ the current browser implementation; apps keep importing `@storage/*`.
 ### `packages/llm`
 
 Provider-agnostic LLM abstraction. Today it exposes a thin wrapper around
-OpenAI via `runLLMRequest`, but it is the home for:
+Anthropic Claude via `runLLMRequest`, but it is the home for:
 
-* Additional providers (Anthropic, Azure, local models).
+* Additional providers (OpenAI, Azure, local models).
 * Prompt templates shared across pipeline stages.
 * Retry/rate-limiting/shared logging for LLM calls.
 
