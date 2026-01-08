@@ -1,137 +1,169 @@
-"use client"
+"use client";
 
-import { useState, useCallback, useRef, useEffect } from "react"
-import type { Encounter } from "@storage/types"
-import { useEncounters, EncounterList, IdleView, NewEncounterForm, RecordingView, ProcessingView, ErrorBoundary, PermissionsDialog, SettingsDialog, SettingsBar } from "@ui"
-import { NoteEditor } from "@note-rendering"
-import { useAudioRecorder, type RecordedSegment, warmupMicrophonePermission, warmupSystemAudioPermission } from "@audio"
-import { useSegmentUpload } from "@transcription"
-import { generateClinicalNote } from "@/app/actions"
-import { getPreferences, setPreferences, type NoteLength } from "@storage"
+import { useState, useCallback, useRef, useEffect } from "react";
+import type { Encounter } from "@storage/types";
+import {
+  useEncounters,
+  EncounterList,
+  IdleView,
+  NewEncounterForm,
+  RecordingView,
+  ProcessingView,
+  ErrorBoundary,
+  PermissionsDialog,
+  SettingsDialog,
+  SettingsBar,
+} from "@ui";
+import { NoteEditor } from "@note-rendering";
+import {
+  useAudioRecorder,
+  type RecordedSegment,
+  warmupMicrophonePermission,
+  warmupSystemAudioPermission,
+} from "@audio";
+import { useSegmentUpload } from "@transcription";
+import { generateClinicalNote } from "@/app/actions";
+import { getPreferences, setPreferences, type NoteLength } from "@storage";
 
+// TODO: Add error handling
 type ViewState =
   | { type: "idle" }
   | { type: "new-form" }
   | { type: "recording"; encounterId: string }
   | { type: "processing"; encounterId: string }
-  | { type: "viewing"; encounterId: string }
+  | { type: "viewing"; encounterId: string };
 
-type StepStatus = "pending" | "in-progress" | "done" | "failed"
+type StepStatus = "pending" | "in-progress" | "done" | "failed";
 
-const SEGMENT_DURATION_MS = 10000
-const OVERLAP_MS = 250
+const SEGMENT_DURATION_MS = 10000;
+const OVERLAP_MS = 250;
 
 function HomePageContent() {
-  const { encounters, addEncounter, updateEncounter, deleteEncounter: removeEncounter, refresh } = useEncounters()
+  const {
+    encounters,
+    addEncounter,
+    updateEncounter,
+    deleteEncounter: removeEncounter,
+    refresh,
+  } = useEncounters();
 
-  const [view, setView] = useState<ViewState>({ type: "idle" })
-  const [transcriptionStatus, setTranscriptionStatus] = useState<StepStatus>("pending")
-  const [noteGenerationStatus, setNoteGenerationStatus] = useState<StepStatus>("pending")
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [view, setView] = useState<ViewState>({ type: "idle" });
+  const [transcriptionStatus, setTranscriptionStatus] =
+    useState<StepStatus>("pending");
+  const [noteGenerationStatus, setNoteGenerationStatus] =
+    useState<StepStatus>("pending");
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
-  const currentEncounterIdRef = useRef<string | null>(null)
-  const sessionIdRef = useRef<string | null>(null)
-  const eventSourceRef = useRef<EventSource | null>(null)
-  const finalTranscriptRef = useRef<string>("")
-  const finalRecordingRef = useRef<Blob | null>(null)
+  const currentEncounterIdRef = useRef<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const finalTranscriptRef = useRef<string>("");
+  const finalRecordingRef = useRef<Blob | null>(null);
 
-  const [showPermissionsDialog, setShowPermissionsDialog] = useState(false)
-  const permissionCheckInProgressRef = useRef(false)
+  const [showPermissionsDialog, setShowPermissionsDialog] = useState(false);
+  const permissionCheckInProgressRef = useRef(false);
 
-  const [showSettingsDialog, setShowSettingsDialog] = useState(false)
-  const [noteLength, setNoteLengthState] = useState<NoteLength>("long")
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+  const [noteLength, setNoteLengthState] = useState<NoteLength>("long");
 
   useEffect(() => {
-    const prefs = getPreferences()
-    setNoteLengthState(prefs.noteLength)
-  }, [])
+    const prefs = getPreferences();
+    setNoteLengthState(prefs.noteLength);
+  }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return
-    if (window.__openscribePermissionsPrimed) return
-    if (permissionCheckInProgressRef.current) return
-    
-    window.__openscribePermissionsPrimed = true
-    permissionCheckInProgressRef.current = true
+    if (typeof window === "undefined") return;
+    if (window.__openscribePermissionsPrimed) return;
+    if (permissionCheckInProgressRef.current) return;
+
+    window.__openscribePermissionsPrimed = true;
+    permissionCheckInProgressRef.current = true;
 
     const checkPermissions = async () => {
       try {
-        const desktop = window.desktop
-        console.log("[Main Page] Desktop object available:", !!desktop)
-        console.log("[Main Page] Desktop API methods:", desktop ? Object.keys(desktop) : "none")
-        
+        const desktop = window.desktop;
+        console.log("[Main Page] Desktop object available:", !!desktop);
+        console.log(
+          "[Main Page] Desktop API methods:",
+          desktop ? Object.keys(desktop) : "none"
+        );
+
         if (!desktop?.getMediaAccessStatus) {
           // Not in desktop environment, just warmup browser permissions
-          console.log("[Main Page] Not in desktop environment, skipping permission dialog")
-          void warmupMicrophonePermission()
-          return
+          console.log(
+            "[Main Page] Not in desktop environment, skipping permission dialog"
+          );
+          void warmupMicrophonePermission();
+          return;
         }
 
-        console.log("[Main Page] Checking microphone permission...")
-        const micStatus = await desktop.getMediaAccessStatus("microphone")
-        console.log("[Main Page] Microphone status:", micStatus)
-        
+        console.log("[Main Page] Checking microphone permission...");
+        const micStatus = await desktop.getMediaAccessStatus("microphone");
+        console.log("[Main Page] Microphone status:", micStatus);
+
         if (micStatus !== "granted") {
-          console.log("[Main Page] Missing microphone permission, showing dialog")
-          setShowPermissionsDialog(true)
+          console.log(
+            "[Main Page] Missing microphone permission, showing dialog"
+          );
+          setShowPermissionsDialog(true);
         } else {
-          console.log("[Main Page] All permissions granted, warmup only")
+          console.log("[Main Page] All permissions granted, warmup only");
           // Warmup permissions in background
-          void warmupMicrophonePermission()
-          void warmupSystemAudioPermission()
+          void warmupMicrophonePermission();
+          void warmupSystemAudioPermission();
         }
       } catch (error) {
-        console.error("[Main Page] Permission check failed:", error)
+        console.error("[Main Page] Permission check failed:", error);
       } finally {
-        permissionCheckInProgressRef.current = false
+        permissionCheckInProgressRef.current = false;
       }
-    }
+    };
 
-    void checkPermissions()
-  }, [])
+    void checkPermissions();
+  }, []);
 
   const handlePermissionsComplete = async () => {
-    setShowPermissionsDialog(false)
+    setShowPermissionsDialog(false);
     // Warmup permissions after dialog is complete
-    void warmupMicrophonePermission()
-    void warmupSystemAudioPermission()
-  }
+    void warmupMicrophonePermission();
+    void warmupSystemAudioPermission();
+  };
 
   const handleOpenSettings = () => {
-    setShowSettingsDialog(true)
-  }
+    setShowSettingsDialog(true);
+  };
 
   const handleCloseSettings = () => {
-    setShowSettingsDialog(false)
-  }
+    setShowSettingsDialog(false);
+  };
 
   const handleNoteLengthChange = (length: NoteLength) => {
-    setNoteLengthState(length)
-    setPreferences({ noteLength: length })
-  }
+    setNoteLengthState(length);
+    setPreferences({ noteLength: length });
+  };
 
   const handleUploadError = useCallback((error: any) => {
-    console.error("Segment upload failed:", error?.code, "-", error?.message)
-  }, [])
+    console.error("Segment upload failed:", error?.code, "-", error?.message);
+  }, []);
 
   const { enqueueSegment, resetQueue } = useSegmentUpload(sessionId, {
     onError: handleUploadError,
-  })
+  });
 
   const cleanupSession = useCallback(() => {
-    console.log('[Cleanup] Closing EventSource connection')
+    console.log("[Cleanup] Closing EventSource connection");
     if (eventSourceRef.current) {
-      eventSourceRef.current.close()
-      eventSourceRef.current = null
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
     }
-    sessionIdRef.current = null
-    setSessionId(null)
-    resetQueue()
-  }, [resetQueue])
+    sessionIdRef.current = null;
+    setSessionId(null);
+    resetQueue();
+  }, [resetQueue]);
 
   const handleSegmentReady = useCallback(
     (segment: RecordedSegment) => {
-      if (!sessionIdRef.current) return
+      if (!sessionIdRef.current) return;
       enqueueSegment({
         seqNo: segment.seqNo,
         startMs: segment.startMs,
@@ -139,10 +171,10 @@ function HomePageContent() {
         durationMs: segment.durationMs,
         overlapMs: segment.overlapMs,
         blob: segment.blob,
-      })
+      });
     },
-    [enqueueSegment],
-  )
+    [enqueueSegment]
+  );
 
   const {
     isPaused,
@@ -156,352 +188,383 @@ function HomePageContent() {
     onSegmentReady: handleSegmentReady,
     segmentDurationMs: SEGMENT_DURATION_MS,
     overlapMs: OVERLAP_MS,
-  })
+  });
 
   useEffect(() => {
     if (recordingError) {
-      console.error("Recording error:", recordingError)
-      setTranscriptionStatus("failed")
+      console.error("Recording error:", recordingError);
+      setTranscriptionStatus("failed");
     }
-  }, [recordingError])
+  }, [recordingError]);
 
   // Stable ref for updateEncounter to avoid EventSource recreation
-  const updateEncounterRef = useRef(updateEncounter)
+  const updateEncounterRef = useRef(updateEncounter);
   useEffect(() => {
-    updateEncounterRef.current = updateEncounter
-  }, [updateEncounter])
+    updateEncounterRef.current = updateEncounter;
+  }, [updateEncounter]);
 
   const handleSegmentEvent = useCallback(
     (event: MessageEvent) => {
       try {
         const data = JSON.parse(event.data) as {
-          stitched_text?: string
-          transcript?: string
-        }
-        const transcript = data.stitched_text || data.transcript || ""
-        if (!transcript) return
-        const encounterId = currentEncounterIdRef.current
+          stitched_text?: string;
+          transcript?: string;
+        };
+        const transcript = data.stitched_text || data.transcript || "";
+        if (!transcript) return;
+        const encounterId = currentEncounterIdRef.current;
         if (encounterId) {
-          void updateEncounterRef.current(encounterId, { transcript_text: transcript })
+          void updateEncounterRef.current(encounterId, {
+            transcript_text: transcript,
+          });
         }
       } catch (error) {
-        console.error("Failed to parse segment event", error)
+        console.error("Failed to parse segment event", error);
       }
     },
-    [], // No dependencies - uses refs instead
-  )
+    [] // No dependencies - uses refs instead
+  );
 
   // Stable refs to avoid EventSource recreation
-  const encountersRef = useRef(encounters)
-  const noteLengthRef = useRef(noteLength)
-  const refreshRef = useRef(refresh)
-  
+  const encountersRef = useRef(encounters);
+  const noteLengthRef = useRef(noteLength);
+  const refreshRef = useRef(refresh);
+
   useEffect(() => {
-    encountersRef.current = encounters
-    noteLengthRef.current = noteLength
-    refreshRef.current = refresh
-  }, [encounters, noteLength, refresh])
+    encountersRef.current = encounters;
+    noteLengthRef.current = noteLength;
+    refreshRef.current = refresh;
+  }, [encounters, noteLength, refresh]);
 
   const processEncounterForNoteGeneration = useCallback(
     async (encounterId: string, transcript: string) => {
-      const enc = encountersRef.current.find((e: Encounter) => e.id === encounterId)
-      const patientName = enc?.patient_name || ""
-      const visitReason = enc?.visit_reason || ""
+      const enc = encountersRef.current.find(
+        (e: Encounter) => e.id === encounterId
+      );
+      const patientName = enc?.patient_name || "";
+      const visitReason = enc?.visit_reason || "";
 
-      console.log("\n" + "=".repeat(80))
-      console.log("GENERATING CLINICAL NOTE")
-      console.log("=".repeat(80))
-      console.log(`Encounter ID: ${encounterId}`)
-      console.log(`Patient: ${patientName || "Unknown"}`)
-      console.log(`Visit Reason: ${visitReason || "Not provided"}`)
-      console.log(`Note Length: ${noteLengthRef.current}`)
-      console.log(`Transcript length: ${transcript.length} characters`)
-      console.log("=".repeat(80) + "\n")
+      console.log("\n" + "=".repeat(80));
+      console.log("GENERATING CLINICAL NOTE");
+      console.log("=".repeat(80));
+      console.log(`Encounter ID: ${encounterId}`);
+      console.log(`Patient: ${patientName || "Unknown"}`);
+      console.log(`Visit Reason: ${visitReason || "Not provided"}`);
+      console.log(`Note Length: ${noteLengthRef.current}`);
+      console.log(`Transcript length: ${transcript.length} characters`);
+      console.log("=".repeat(80) + "\n");
 
-      setNoteGenerationStatus("in-progress")
+      setNoteGenerationStatus("in-progress");
       try {
         const note = await generateClinicalNote({
           transcript,
           patient_name: patientName,
           visit_reason: visitReason,
           noteLength: noteLengthRef.current,
-        })
+        });
         await updateEncounterRef.current(encounterId, {
           note_text: note,
           status: "completed",
-        })
-        await refreshRef.current()
-        setNoteGenerationStatus("done")
-        console.log("✅ Clinical note saved to encounter")
-        console.log("\n" + "=".repeat(80))
-        console.log("ENCOUNTER PROCESSING COMPLETE")
-        console.log("=".repeat(80) + "\n")
-        setView({ type: "viewing", encounterId })
+        });
+        await refreshRef.current();
+        setNoteGenerationStatus("done");
+        console.log("✅ Clinical note saved to encounter");
+        console.log("\n" + "=".repeat(80));
+        console.log("ENCOUNTER PROCESSING COMPLETE");
+        console.log("=".repeat(80) + "\n");
+        setView({ type: "viewing", encounterId });
       } catch (err) {
-        console.error("❌ Note generation failed:", err)
-        setNoteGenerationStatus("failed")
-        await updateEncounterRef.current(encounterId, { status: "note_generation_failed" })
-        await refreshRef.current()
+        console.error("❌ Note generation failed:", err);
+        setNoteGenerationStatus("failed");
+        await updateEncounterRef.current(encounterId, {
+          status: "note_generation_failed",
+        });
+        await refreshRef.current();
       }
     },
-    [], // No dependencies - uses refs instead
-  )
+    [] // No dependencies - uses refs instead
+  );
 
   const handleFinalEvent = useCallback(
     (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data) as { final_transcript?: string }
-        const transcript = data.final_transcript || ""
-        if (!transcript) return
-        finalTranscriptRef.current = transcript
-        setTranscriptionStatus("done")
-        const encounterId = currentEncounterIdRef.current
+        const data = JSON.parse(event.data) as { final_transcript?: string };
+        const transcript = data.final_transcript || "";
+        if (!transcript) return;
+        finalTranscriptRef.current = transcript;
+        setTranscriptionStatus("done");
+        const encounterId = currentEncounterIdRef.current;
         if (encounterId) {
           void (async () => {
-            await updateEncounterRef.current(encounterId, { transcript_text: transcript })
-            await refreshRef.current()
-            await processEncounterForNoteGeneration(encounterId, transcript)
-          })()
+            await updateEncounterRef.current(encounterId, {
+              transcript_text: transcript,
+            });
+            await refreshRef.current();
+            await processEncounterForNoteGeneration(encounterId, transcript);
+          })();
         }
-        cleanupSession()
+        cleanupSession();
       } catch (error) {
-        console.error("Failed to parse final transcript event", error)
+        console.error("Failed to parse final transcript event", error);
       }
     },
-    [cleanupSession, processEncounterForNoteGeneration], // Minimal stable dependencies
-  )
+    [cleanupSession, processEncounterForNoteGeneration] // Minimal stable dependencies
+  );
 
   const handleStreamError = useCallback((event: MessageEvent | Event) => {
-    console.error("Transcription stream error", event)
-    setTranscriptionStatus("failed")
-  }, [])
+    console.error("Transcription stream error", event);
+    setTranscriptionStatus("failed");
+  }, []);
 
   useEffect(() => {
-    if (!sessionId) return
-    
-    console.log('[EventSource] Connecting to session:', sessionId)
-    const source = new EventSource(`/api/transcription/stream/${sessionId}`)
-    eventSourceRef.current = source
+    if (!sessionId) return;
 
-    const segmentListener = (event: Event) => handleSegmentEvent(event as MessageEvent)
-    const finalListener = (event: Event) => handleFinalEvent(event as MessageEvent)
-    const errorListener = (event: Event) => handleStreamError(event)
+    console.log("[EventSource] Connecting to session:", sessionId);
+    const source = new EventSource(`/api/transcription/stream/${sessionId}`);
+    eventSourceRef.current = source;
 
-    source.addEventListener("segment", segmentListener)
-    source.addEventListener("final", finalListener)
-    source.addEventListener("error", errorListener)
+    const segmentListener = (event: Event) =>
+      handleSegmentEvent(event as MessageEvent);
+    const finalListener = (event: Event) =>
+      handleFinalEvent(event as MessageEvent);
+    const errorListener = (event: Event) => handleStreamError(event);
+
+    source.addEventListener("segment", segmentListener);
+    source.addEventListener("final", finalListener);
+    source.addEventListener("error", errorListener);
 
     return () => {
-      console.log('[EventSource] Cleanup: closing connection for session:', sessionId)
-      source.removeEventListener("segment", segmentListener)
-      source.removeEventListener("final", finalListener)
-      source.removeEventListener("error", errorListener)
-      source.close()
+      console.log(
+        "[EventSource] Cleanup: closing connection for session:",
+        sessionId
+      );
+      source.removeEventListener("segment", segmentListener);
+      source.removeEventListener("final", finalListener);
+      source.removeEventListener("error", errorListener);
+      source.close();
       if (eventSourceRef.current === source) {
-        eventSourceRef.current = null
+        eventSourceRef.current = null;
       }
-    }
-  }, [handleFinalEvent, handleSegmentEvent, handleStreamError, sessionId])
-  
+    };
+  }, [handleFinalEvent, handleSegmentEvent, handleStreamError, sessionId]);
+
   // Cleanup EventSource on page unload/refresh
   useEffect(() => {
     const handleBeforeUnload = () => {
-      console.log('[BeforeUnload] Cleaning up EventSource')
+      console.log("[BeforeUnload] Cleaning up EventSource");
       if (eventSourceRef.current) {
-        eventSourceRef.current.close()
-        eventSourceRef.current = null
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
       }
-    }
-    
+    };
+
     const handleVisibilityChange = () => {
       // If page becomes hidden and we're not actively recording, cleanup
-      if (document.hidden && view.type !== 'recording') {
-        console.log('[VisibilityChange] Page hidden, cleaning up EventSource')
+      if (document.hidden && view.type !== "recording") {
+        console.log("[VisibilityChange] Page hidden, cleaning up EventSource");
         if (eventSourceRef.current) {
-          eventSourceRef.current.close()
-          eventSourceRef.current = null
+          eventSourceRef.current.close();
+          eventSourceRef.current = null;
         }
       }
-    }
-    
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [view.type])
+    };
 
-  const startNewSession = useCallback((id: string) => {
-    sessionIdRef.current = id
-    setSessionId(id)
-    resetQueue()
-  }, [resetQueue])
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [view.type]);
+
+  const startNewSession = useCallback(
+    (id: string) => {
+      sessionIdRef.current = id;
+      setSessionId(id);
+      resetQueue();
+    },
+    [resetQueue]
+  );
 
   const handleStartNew = () => {
-    setView({ type: "new-form" })
-  }
+    setView({ type: "new-form" });
+  };
 
   const handleCancelNew = () => {
-    setView({ type: "idle" })
-  }
+    setView({ type: "idle" });
+  };
 
   const handleStartRecording = async (data: {
-    patient_name: string
-    patient_id: string
-    visit_reason: string
+    patient_name: string;
+    patient_id: string;
+    visit_reason: string;
   }) => {
     try {
-      cleanupSession()
-      finalTranscriptRef.current = ""
-      finalRecordingRef.current = null
-      setTranscriptionStatus("pending")
-      setNoteGenerationStatus("pending")
+      cleanupSession();
+      finalTranscriptRef.current = "";
+      finalRecordingRef.current = null;
+      setTranscriptionStatus("pending");
+      setNoteGenerationStatus("pending");
 
-      const session = crypto.randomUUID()
-      startNewSession(session)
+      const session = crypto.randomUUID();
+      startNewSession(session);
 
       const encounter = await addEncounter({
         ...data,
         status: "recording",
         transcript_text: "",
         session_id: session,
-      })
+      });
 
-      currentEncounterIdRef.current = encounter.id
-      await startRecording()
-      setView({ type: "recording", encounterId: encounter.id })
-      setTranscriptionStatus("in-progress")
+      currentEncounterIdRef.current = encounter.id;
+      await startRecording();
+      setView({ type: "recording", encounterId: encounter.id });
+      setTranscriptionStatus("in-progress");
     } catch (err) {
-      console.error("Failed to start recording:", err)
-      setTranscriptionStatus("failed")
+      console.error("Failed to start recording:", err);
+      setTranscriptionStatus("failed");
     }
-  }
+  };
 
-  const uploadFinalRecording = useCallback(async (activeSessionId: string, blob: Blob, attempt = 1): Promise<void> => {
-    try {
-      const formData = new FormData()
-      formData.append("session_id", activeSessionId)
-      formData.append("file", blob, `${activeSessionId}-full.wav`)
-      const response = await fetch("/api/transcription/final", {
-        method: "POST",
-        body: formData,
-      })
-      if (!response.ok) {
-        const retryable = response.status === 429 || response.status >= 500
-        if (retryable && attempt < 3) {
-          await new Promise((resolve) => setTimeout(resolve, 250 * attempt))
-          return uploadFinalRecording(activeSessionId, blob, attempt + 1)
-        }
-        let message = `Final upload failed (${response.status})`
-        try {
-          const body = (await response.json()) as { error?: { message?: string } }
-          if (body?.error?.message) {
-            message = body.error.message
+  const uploadFinalRecording = useCallback(
+    async (activeSessionId: string, blob: Blob, attempt = 1): Promise<void> => {
+      try {
+        const formData = new FormData();
+        formData.append("session_id", activeSessionId);
+        formData.append("file", blob, `${activeSessionId}-full.wav`);
+        const response = await fetch("/api/transcription/final", {
+          method: "POST",
+          body: formData,
+        });
+        if (!response.ok) {
+          const retryable = response.status === 429 || response.status >= 500;
+          if (retryable && attempt < 3) {
+            await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+            return uploadFinalRecording(activeSessionId, blob, attempt + 1);
           }
-        } catch {
-          // ignore
+          let message = `Final upload failed (${response.status})`;
+          try {
+            const body = (await response.json()) as {
+              error?: { message?: string };
+            };
+            if (body?.error?.message) {
+              message = body.error.message;
+            }
+          } catch {
+            // ignore
+          }
+          throw new Error(message);
         }
-        throw new Error(message)
+      } catch (error) {
+        if (attempt < 3) {
+          await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+          return uploadFinalRecording(activeSessionId, blob, attempt + 1);
+        }
+        console.error("Failed to upload final recording:", error);
+        setTranscriptionStatus("failed");
+        throw error;
       }
-    } catch (error) {
-      if (attempt < 3) {
-        await new Promise((resolve) => setTimeout(resolve, 250 * attempt))
-        return uploadFinalRecording(activeSessionId, blob, attempt + 1)
-      }
-      console.error("Failed to upload final recording:", error)
-      setTranscriptionStatus("failed")
-      throw error
-    }
-  }, [])
+    },
+    []
+  );
 
   const handleStopRecording = async () => {
-    const encounter = currentEncounter
-    if (!encounter) return
+    const encounter = currentEncounter;
+    if (!encounter) return;
 
-    const audioBlob = await stopRecording()
+    const audioBlob = await stopRecording();
     if (!audioBlob) {
-      setTranscriptionStatus("failed")
-      return
+      setTranscriptionStatus("failed");
+      return;
     }
 
-    finalRecordingRef.current = audioBlob
+    finalRecordingRef.current = audioBlob;
 
     await updateEncounter(encounter.id, {
       status: "processing",
       recording_duration: duration,
-    })
+    });
 
-    setView({ type: "processing", encounterId: encounter.id })
+    setView({ type: "processing", encounterId: encounter.id });
 
-    const activeSessionId = sessionIdRef.current
+    const activeSessionId = sessionIdRef.current;
     if (activeSessionId) {
-      void uploadFinalRecording(activeSessionId, audioBlob)
+      void uploadFinalRecording(activeSessionId, audioBlob);
     } else {
-      console.error("Missing session identifier for final upload")
-      setTranscriptionStatus("failed")
+      console.error("Missing session identifier for final upload");
+      setTranscriptionStatus("failed");
     }
-  }
+  };
 
   const handleRetryTranscription = async () => {
-    const blob = finalRecordingRef.current
-    const activeSessionId = sessionIdRef.current
-    if (!blob || !activeSessionId) return
-    setTranscriptionStatus("in-progress")
+    const blob = finalRecordingRef.current;
+    const activeSessionId = sessionIdRef.current;
+    if (!blob || !activeSessionId) return;
+    setTranscriptionStatus("in-progress");
     try {
-      await uploadFinalRecording(activeSessionId, blob)
+      await uploadFinalRecording(activeSessionId, blob);
     } catch {
       // handled in uploadFinalRecording
     }
-  }
+  };
 
   const handleRetryNoteGeneration = async () => {
-    const transcript = finalTranscriptRef.current
-    const encounterId = currentEncounter?.id
-    if (!encounterId || !transcript) return
-    await processEncounterForNoteGeneration(encounterId, transcript)
-  }
+    const transcript = finalTranscriptRef.current;
+    const encounterId = currentEncounter?.id;
+    if (!encounterId || !transcript) return;
+    await processEncounterForNoteGeneration(encounterId, transcript);
+  };
 
-  const currentEncounter = encounters.find((e: Encounter) => "encounterId" in view && e.id === view.encounterId)
-  const selectedEncounter = view.type === "viewing" ? encounters.find((e: Encounter) => e.id === view.encounterId) : null
+  const currentEncounter = encounters.find(
+    (e: Encounter) => "encounterId" in view && e.id === view.encounterId
+  );
+  const selectedEncounter =
+    view.type === "viewing"
+      ? encounters.find((e: Encounter) => e.id === view.encounterId)
+      : null;
 
   const handleSelectEncounter = (encounter: Encounter) => {
-    if (view.type === "recording") return
-    setView({ type: "viewing", encounterId: encounter.id })
-  }
+    if (view.type === "recording") return;
+    setView({ type: "viewing", encounterId: encounter.id });
+  };
 
   const handleSaveNote = async (noteText: string) => {
-    if (!selectedEncounter) return
-    await updateEncounter(selectedEncounter.id, { note_text: noteText })
-  }
+    if (!selectedEncounter) return;
+    await updateEncounter(selectedEncounter.id, { note_text: noteText });
+  };
 
   const handleDeleteEncounter = async (encounterId: string) => {
-    await removeEncounter(encounterId)
+    await removeEncounter(encounterId);
     if (currentEncounterIdRef.current === encounterId) {
-      currentEncounterIdRef.current = null
+      currentEncounterIdRef.current = null;
     }
     setView((prev) => {
       if (
-        (prev.type === "recording" || prev.type === "processing" || prev.type === "viewing") &&
+        (prev.type === "recording" ||
+          prev.type === "processing" ||
+          prev.type === "viewing") &&
         prev.encounterId === encounterId
       ) {
-        return { type: "idle" }
+        return { type: "idle" };
       }
-      return prev
-    })
-  }
+      return prev;
+    });
+  };
 
   const renderMainContent = () => {
     switch (view.type) {
       case "idle":
-        return <IdleView onStartNew={handleStartNew} />
+        return <IdleView onStartNew={handleStartNew} />;
       case "new-form":
         return (
           <div className="flex h-full items-center justify-center p-8">
-            <NewEncounterForm onStart={handleStartRecording} onCancel={handleCancelNew} />
+            <NewEncounterForm
+              onStart={handleStartRecording}
+              onCancel={handleCancelNew}
+            />
           </div>
-        )
+        );
       case "recording":
         return (
           <div className="flex h-full items-center justify-center p-8">
@@ -515,7 +578,7 @@ function HomePageContent() {
               onResume={resumeRecording}
             />
           </div>
-        )
+        );
       case "processing":
         return (
           <div className="flex h-full items-center justify-center p-8">
@@ -527,21 +590,23 @@ function HomePageContent() {
               onRetryNoteGeneration={handleRetryNoteGeneration}
             />
           </div>
-        )
+        );
       case "viewing":
         return selectedEncounter ? (
           <NoteEditor encounter={selectedEncounter} onSave={handleSaveNote} />
         ) : (
           <IdleView onStartNew={handleStartNew} />
-        )
+        );
       default:
-        return <IdleView onStartNew={handleStartNew} />
+        return <IdleView onStartNew={handleStartNew} />;
     }
-  }
+  };
 
   return (
     <>
-      {showPermissionsDialog && <PermissionsDialog onComplete={handlePermissionsComplete} />}
+      {showPermissionsDialog && (
+        <PermissionsDialog onComplete={handlePermissionsComplete} />
+      )}
       <SettingsDialog
         isOpen={showSettingsDialog}
         onClose={handleCloseSettings}
@@ -565,7 +630,7 @@ function HomePageContent() {
         </main>
       </div>
     </>
-  )
+  );
 }
 
 export default function HomePage() {
@@ -573,5 +638,5 @@ export default function HomePage() {
     <ErrorBoundary>
       <HomePageContent />
     </ErrorBoundary>
-  )
+  );
 }
