@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server"
 import { parseWavHeader, transcribeWavBuffer } from "@transcription"
 import { transcriptionSessionStore } from "@transcript-assembly"
 import { getOpenAIApiKey } from "@storage/server-api-keys"
+import { writeAuditEntry } from "@storage/audit-log"
 
 function jsonError(status: number, code: string, message: string) {
   return new Response(JSON.stringify({ error: { code, message } }), {
@@ -60,6 +61,18 @@ export async function POST(req: NextRequest) {
         overlapMs,
         transcript,
       })
+
+      // Audit log: segment transcribed successfully
+      await writeAuditEntry({
+        event_type: "transcription.segment_uploaded",
+        resource_id: sessionId,
+        success: true,
+        metadata: {
+          seq_no: seqNo,
+          duration_ms: durationMs,
+        },
+      })
+
       return new Response(JSON.stringify({ ok: true }), {
         headers: { "Content-Type": "application/json" },
       })
@@ -70,6 +83,18 @@ export async function POST(req: NextRequest) {
         "api_error",
         error instanceof Error ? error.message : "Transcription API failure",
       )
+
+      // Audit log: segment transcription failed
+      await writeAuditEntry({
+        event_type: "transcription.failed",
+        resource_id: sessionId,
+        success: false,
+        error_message: error instanceof Error ? error.message : "Transcription API failed",
+        metadata: {
+          seq_no: seqNo,
+        },
+      })
+
       return jsonError(502, "api_error", "Transcription API failed")
     }
   } catch (error) {

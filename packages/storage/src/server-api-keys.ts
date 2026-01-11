@@ -5,6 +5,60 @@
 
 import { readFileSync } from "fs"
 import { join } from "path"
+import crypto from "crypto"
+
+const ALGORITHM = "aes-256-gcm"
+
+function getEncryptionKeySync(): Buffer {
+  const configDir = typeof process !== "undefined" && process.env.NODE_ENV === "production"
+    ? (() => {
+        try {
+          const { app } = require("electron")
+          if (app && app.getPath) {
+            return app.getPath("userData")
+          }
+        } catch {}
+        return process.cwd()
+      })()
+    : process.cwd()
+  
+  const keyPath = join(configDir, ".encryption-key")
+  
+  try {
+    return readFileSync(keyPath)
+  } catch {
+    // Key doesn't exist yet (first run) - API routes will create it
+    // Return empty buffer to trigger fallback to env var
+    return Buffer.alloc(0)
+  }
+}
+
+function decryptDataSync(payload: string): string {
+  const parts = payload.split(".")
+  
+  // Check for encrypted format: enc.v2.<iv>.<authTag>.<ciphertext>
+  if (parts.length === 5 && parts[0] === "enc" && parts[1] === "v2") {
+    const key = getEncryptionKeySync()
+    if (key.length === 0) {
+      throw new Error("Encryption key not available")
+    }
+    
+    const iv = Buffer.from(parts[2], "base64")
+    const authTag = Buffer.from(parts[3], "base64")
+    const encrypted = Buffer.from(parts[4], "base64")
+    
+    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv)
+    decipher.setAuthTag(authTag)
+    
+    let decrypted = decipher.update(encrypted)
+    decrypted = Buffer.concat([decrypted, decipher.final()])
+    
+    return decrypted.toString("utf8")
+  }
+  
+  // Legacy unencrypted JSON format
+  return payload
+}
 
 function getConfigPath(): string {
   // In production (Electron), use userData path
@@ -30,7 +84,11 @@ export function getOpenAIApiKey(): string {
   try {
     const configPath = getConfigPath()
     const fileContent = readFileSync(configPath, "utf-8")
-    const config = JSON.parse(fileContent)
+    
+    // Decrypt if encrypted
+    const decrypted = decryptDataSync(fileContent)
+    const config = JSON.parse(decrypted)
+    
     if (config.openaiApiKey) {
       return config.openaiApiKey
     }
@@ -51,7 +109,11 @@ export function getAnthropicApiKey(): string {
   try {
     const configPath = getConfigPath()
     const fileContent = readFileSync(configPath, "utf-8")
-    const config = JSON.parse(fileContent)
+    
+    // Decrypt if encrypted
+    const decrypted = decryptDataSync(fileContent)
+    const config = JSON.parse(decrypted)
+    
     if (config.anthropicApiKey) {
       return config.anthropicApiKey
     }

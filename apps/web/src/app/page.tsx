@@ -2,12 +2,12 @@
 
 import { useState, useCallback, useRef, useEffect } from "react"
 import type { Encounter } from "@storage/types"
-import { useEncounters, EncounterList, IdleView, NewEncounterForm, RecordingView, ProcessingView, ErrorBoundary, PermissionsDialog, SettingsDialog, SettingsBar } from "@ui"
+import { useEncounters, EncounterList, IdleView, NewEncounterForm, RecordingView, ProcessingView, ErrorBoundary, PermissionsDialog, SettingsDialog, SettingsBar, useHttpsWarning } from "@ui"
 import { NoteEditor } from "@note-rendering"
 import { useAudioRecorder, type RecordedSegment, warmupMicrophonePermission, warmupSystemAudioPermission } from "@audio"
 import { useSegmentUpload } from "@transcription"
 import { generateClinicalNote } from "@/app/actions"
-import { getPreferences, setPreferences, type NoteLength } from "@storage"
+import { getPreferences, setPreferences, type NoteLength, debugLog, debugLogPHI, debugError, debugWarn, initializeAuditLog } from "@storage"
 
 type ViewState =
   | { type: "idle" }
@@ -23,6 +23,9 @@ const OVERLAP_MS = 250
 
 function HomePageContent() {
   const { encounters, addEncounter, updateEncounter, deleteEncounter: removeEncounter, refresh } = useEncounters()
+  
+  // HIPAA Compliance: Warn if production build is served over HTTP
+  const httpsWarning = useHttpsWarning()
 
   const [view, setView] = useState<ViewState>({ type: "idle" })
   const [transcriptionStatus, setTranscriptionStatus] = useState<StepStatus>("pending")
@@ -44,6 +47,9 @@ function HomePageContent() {
   useEffect(() => {
     const prefs = getPreferences()
     setNoteLengthState(prefs.noteLength)
+
+    // Initialize audit logging system (cleanup old entries, setup periodic cleanup)
+    void initializeAuditLog()
   }, [])
 
   useEffect(() => {
@@ -57,31 +63,31 @@ function HomePageContent() {
     const checkPermissions = async () => {
       try {
         const desktop = window.desktop
-        console.log("[Main Page] Desktop object available:", !!desktop)
-        console.log("[Main Page] Desktop API methods:", desktop ? Object.keys(desktop) : "none")
+        debugLog("[Main Page] Desktop object available:", !!desktop)
+        debugLog("[Main Page] Desktop API methods:", desktop ? Object.keys(desktop) : "none")
         
         if (!desktop?.getMediaAccessStatus) {
           // Not in desktop environment, just warmup browser permissions
-          console.log("[Main Page] Not in desktop environment, skipping permission dialog")
+          debugLog("[Main Page] Not in desktop environment, skipping permission dialog")
           void warmupMicrophonePermission()
           return
         }
 
-        console.log("[Main Page] Checking microphone permission...")
+        debugLog("[Main Page] Checking microphone permission...")
         const micStatus = await desktop.getMediaAccessStatus("microphone")
-        console.log("[Main Page] Microphone status:", micStatus)
+        debugLog("[Main Page] Microphone status:", micStatus)
         
         if (micStatus !== "granted") {
-          console.log("[Main Page] Missing microphone permission, showing dialog")
+          debugLog("[Main Page] Missing microphone permission, showing dialog")
           setShowPermissionsDialog(true)
         } else {
-          console.log("[Main Page] All permissions granted, warmup only")
+          debugLog("[Main Page] All permissions granted, warmup only")
           // Warmup permissions in background
           void warmupMicrophonePermission()
           void warmupSystemAudioPermission()
         }
       } catch (error) {
-        console.error("[Main Page] Permission check failed:", error)
+        debugError("[Main Page] Permission check failed:", error)
       } finally {
         permissionCheckInProgressRef.current = false
       }
@@ -111,7 +117,7 @@ function HomePageContent() {
   }
 
   const handleUploadError = useCallback((error: any) => {
-    console.error("Segment upload failed:", error?.code, "-", error?.message)
+    debugError("Segment upload failed:", error?.code, "-", error?.message)
   }, [])
 
   const { enqueueSegment, resetQueue } = useSegmentUpload(sessionId, {
@@ -119,7 +125,7 @@ function HomePageContent() {
   })
 
   const cleanupSession = useCallback(() => {
-    console.log('[Cleanup] Closing EventSource connection')
+    debugLog('[Cleanup] Closing EventSource connection')
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
       eventSourceRef.current = null
@@ -160,7 +166,7 @@ function HomePageContent() {
 
   useEffect(() => {
     if (recordingError) {
-      console.error("Recording error:", recordingError)
+      debugError("Recording error:", recordingError)
       setTranscriptionStatus("failed")
     }
   }, [recordingError])
@@ -185,7 +191,7 @@ function HomePageContent() {
           void updateEncounterRef.current(encounterId, { transcript_text: transcript })
         }
       } catch (error) {
-        console.error("Failed to parse segment event", error)
+        debugError("Failed to parse segment event", error)
       }
     },
     [], // No dependencies - uses refs instead
@@ -208,15 +214,15 @@ function HomePageContent() {
       const patientName = enc?.patient_name || ""
       const visitReason = enc?.visit_reason || ""
 
-      console.log("\n" + "=".repeat(80))
-      console.log("GENERATING CLINICAL NOTE")
-      console.log("=".repeat(80))
-      console.log(`Encounter ID: ${encounterId}`)
-      console.log(`Patient: ${patientName || "Unknown"}`)
-      console.log(`Visit Reason: ${visitReason || "Not provided"}`)
-      console.log(`Note Length: ${noteLengthRef.current}`)
-      console.log(`Transcript length: ${transcript.length} characters`)
-      console.log("=".repeat(80) + "\n")
+      debugLog("\n" + "=".repeat(80))
+      debugLog("GENERATING CLINICAL NOTE")
+      debugLog("=".repeat(80))
+      debugLog(`Encounter ID: ${encounterId}`)
+      debugLogPHI(`Patient: ${patientName || "Unknown"}`)
+      debugLogPHI(`Visit Reason: ${visitReason || "Not provided"}`)
+      debugLog(`Note Length: ${noteLengthRef.current}`)
+      debugLog(`Transcript length: ${transcript.length} characters`)
+      debugLog("=".repeat(80) + "\n")
 
       setNoteGenerationStatus("in-progress")
       try {
@@ -232,13 +238,13 @@ function HomePageContent() {
         })
         await refreshRef.current()
         setNoteGenerationStatus("done")
-        console.log("✅ Clinical note saved to encounter")
-        console.log("\n" + "=".repeat(80))
-        console.log("ENCOUNTER PROCESSING COMPLETE")
-        console.log("=".repeat(80) + "\n")
+        debugLog("✅ Clinical note saved to encounter")
+        debugLog("\n" + "=".repeat(80))
+        debugLog("ENCOUNTER PROCESSING COMPLETE")
+        debugLog("=".repeat(80) + "\n")
         setView({ type: "viewing", encounterId })
       } catch (err) {
-        console.error("❌ Note generation failed:", err)
+        debugError("❌ Note generation failed:", err)
         setNoteGenerationStatus("failed")
         await updateEncounterRef.current(encounterId, { status: "note_generation_failed" })
         await refreshRef.current()
@@ -265,21 +271,21 @@ function HomePageContent() {
         }
         cleanupSession()
       } catch (error) {
-        console.error("Failed to parse final transcript event", error)
+        debugError("Failed to parse final transcript event", error)
       }
     },
     [cleanupSession, processEncounterForNoteGeneration], // Minimal stable dependencies
   )
 
   const handleStreamError = useCallback((event: MessageEvent | Event) => {
-    console.error("Transcription stream error", event)
+    debugError("Transcription stream error", event)
     setTranscriptionStatus("failed")
   }, [])
 
   useEffect(() => {
     if (!sessionId) return
     
-    console.log('[EventSource] Connecting to session:', sessionId)
+    debugLog('[EventSource] Connecting to session:', sessionId)
     const source = new EventSource(`/api/transcription/stream/${sessionId}`)
     eventSourceRef.current = source
 
@@ -292,7 +298,7 @@ function HomePageContent() {
     source.addEventListener("error", errorListener)
 
     return () => {
-      console.log('[EventSource] Cleanup: closing connection for session:', sessionId)
+      debugLog('[EventSource] Cleanup: closing connection for session:', sessionId)
       source.removeEventListener("segment", segmentListener)
       source.removeEventListener("final", finalListener)
       source.removeEventListener("error", errorListener)
@@ -306,7 +312,7 @@ function HomePageContent() {
   // Cleanup EventSource on page unload/refresh
   useEffect(() => {
     const handleBeforeUnload = () => {
-      console.log('[BeforeUnload] Cleaning up EventSource')
+      debugLog('[BeforeUnload] Cleaning up EventSource')
       if (eventSourceRef.current) {
         eventSourceRef.current.close()
         eventSourceRef.current = null
@@ -316,7 +322,7 @@ function HomePageContent() {
     const handleVisibilityChange = () => {
       // If page becomes hidden and we're not actively recording, cleanup
       if (document.hidden && view.type !== 'recording') {
-        console.log('[VisibilityChange] Page hidden, cleaning up EventSource')
+        debugLog('[VisibilityChange] Page hidden, cleaning up EventSource')
         if (eventSourceRef.current) {
           eventSourceRef.current.close()
           eventSourceRef.current = null
@@ -374,7 +380,7 @@ function HomePageContent() {
       setView({ type: "recording", encounterId: encounter.id })
       setTranscriptionStatus("in-progress")
     } catch (err) {
-      console.error("Failed to start recording:", err)
+      debugError("Failed to start recording:", err)
       setTranscriptionStatus("failed")
     }
   }
@@ -410,7 +416,7 @@ function HomePageContent() {
         await new Promise((resolve) => setTimeout(resolve, 250 * attempt))
         return uploadFinalRecording(activeSessionId, blob, attempt + 1)
       }
-      console.error("Failed to upload final recording:", error)
+      debugError("Failed to upload final recording:", error)
       setTranscriptionStatus("failed")
       throw error
     }
@@ -439,7 +445,7 @@ function HomePageContent() {
     if (activeSessionId) {
       void uploadFinalRecording(activeSessionId, audioBlob)
     } else {
-      console.error("Missing session identifier for final upload")
+      debugError("Missing session identifier for final upload")
       setTranscriptionStatus("failed")
     }
   }
@@ -548,6 +554,11 @@ function HomePageContent() {
         noteLength={noteLength}
         onNoteLengthChange={handleNoteLengthChange}
       />
+      {httpsWarning && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-destructive px-4 py-2 text-center text-sm font-semibold text-destructive-foreground">
+          {httpsWarning}
+        </div>
+      )}
       <div className="flex h-screen w-screen overflow-hidden bg-background">
         <div className="flex h-full w-72 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar">
           <EncounterList

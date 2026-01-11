@@ -15,6 +15,32 @@ export interface LLMRequest {
   }
 }
 
+/**
+ * HIPAA Compliance: Validate that Anthropic SDK uses HTTPS.
+ * The Anthropic SDK defaults to https://api.anthropic.com, but we validate
+ * to prevent future configuration overrides that could expose PHI.
+ */
+function validateAnthropicHttps(client: Anthropic): void {
+  // The Anthropic SDK uses https://api.anthropic.com by default
+  // We validate the baseURL if it's been customized
+  const baseURL = (client as any).baseURL || "https://api.anthropic.com"
+  
+  try {
+    const parsed = new URL(baseURL)
+    if (parsed.protocol !== "https:") {
+      throw new Error(
+        `SECURITY ERROR: Anthropic API endpoint must use HTTPS for HIPAA compliance. ` +
+        `Received: ${parsed.protocol}//${parsed.host}`
+      )
+    }
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(`Invalid Anthropic API URL: ${baseURL}`)
+    }
+    throw error
+  }
+}
+
 export async function runLLMRequest({ system, prompt, model, apiKey, jsonSchema }: LLMRequest): Promise<string> {
   const anthropicApiKey = apiKey || process.env.ANTHROPIC_API_KEY
 
@@ -31,6 +57,9 @@ export async function runLLMRequest({ system, prompt, model, apiKey, jsonSchema 
   const client = new Anthropic({
     apiKey: anthropicApiKey,
   })
+
+  // Validate HTTPS before sending any PHI
+  validateAnthropicHttps(client)
 
   // Build request parameters
   const requestParams: Anthropic.MessageCreateParams = {

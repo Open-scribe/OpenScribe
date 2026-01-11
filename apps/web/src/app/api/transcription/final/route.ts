@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server"
 import { parseWavHeader, transcribeWavBuffer } from "@transcription"
 import { transcriptionSessionStore } from "@transcript-assembly"
 import { getOpenAIApiKey } from "@storage/server-api-keys"
+import { writeAuditEntry } from "@storage/audit-log"
 
 function jsonError(status: number, code: string, message: string) {
   return new Response(JSON.stringify({ error: { code, message } }), {
@@ -38,6 +39,18 @@ export async function POST(req: NextRequest) {
       const apiKey = getOpenAIApiKey()
       const transcript = await transcribeWavBuffer(Buffer.from(arrayBuffer), `${sessionId}-final.wav`, apiKey)
       transcriptionSessionStore.setFinalTranscript(sessionId, transcript)
+
+      // Audit log: final transcription completed
+      await writeAuditEntry({
+        event_type: "transcription.completed",
+        resource_id: sessionId,
+        success: true,
+        metadata: {
+          duration_ms: wavInfo.durationMs,
+          file_size_bytes: arrayBuffer.byteLength,
+        },
+      })
+
       return new Response(JSON.stringify({ ok: true }), {
         headers: { "Content-Type": "application/json" },
       })
@@ -48,6 +61,15 @@ export async function POST(req: NextRequest) {
         "api_error",
         error instanceof Error ? error.message : "Transcription API failure",
       )
+
+      // Audit log: final transcription failed
+      await writeAuditEntry({
+        event_type: "transcription.failed",
+        resource_id: sessionId,
+        success: false,
+        error_message: error instanceof Error ? error.message : "Transcription API failed",
+      })
+
       return jsonError(502, "api_error", "Transcription API failed")
     }
   } catch (error) {

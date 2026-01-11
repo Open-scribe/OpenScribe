@@ -4,6 +4,7 @@
 
 OpenScribe is a local first MIT license open source AI Medical Scribe that helps clinicians record patient encounters, transcribe audio, and generate structured draft clinical notes using LLMs. The tool stores all data locally by default.
 
+- [Demo](https://www.loom.com/share/659d4f09fc814243addf8be64baf10aa)
 - [Architecture](./architecture.md)
 - [Contributing](./CONTRIBUTING.md)
 
@@ -174,12 +175,13 @@ See [architecture.md](./architecture.md) for complete details.
 ## Privacy & Data Handling
 
 **Storage**: AES-GCM encrypted localStorage. Audio processed in-memory, not persisted.  
-**Transmission**: Audio → Whisper API (transcription), transcripts → Anthropic Claude (note generation only)  
+**Transmission**: All external API calls (audio → Whisper API, transcripts → Anthropic Claude) use HTTPS/TLS encryption. The application enforces HTTPS-only connections and displays a security warning if accessed over HTTP in production builds.  
 **No Tracking**: Zero analytics, telemetry, or cloud sync
 
 **Use Responsibility**  
 - All AI notes are drafts requiring review
 - Ensure regulatory compliance for your use case
+- For production deployments serving PHI, ensure the application is accessed via HTTPS or served from localhost only
 
 ## Limitations & Disclaimers
  
@@ -231,7 +233,7 @@ SOFTWARE.
 ## Citation
 
 ```
-OpenScribe: A Privacy-Conscious Clinical Documentation Assistant
+OpenScribe
 GitHub: https://github.com/sammargolis/OpenScribe
 Maintainer: Sam Margolis (@sammargolis)
 ```

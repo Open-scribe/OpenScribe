@@ -3,6 +3,8 @@
  * Uses localStorage for simple key-value preferences
  */
 
+import { writeAuditEntry } from "./audit-log"
+
 export type NoteLength = "short" | "long"
 
 export interface UserPreferences {
@@ -35,7 +37,7 @@ export function getPreferences(): UserPreferences {
   }
 }
 
-export function setPreferences(preferences: Partial<UserPreferences>): void {
+export async function setPreferences(preferences: Partial<UserPreferences>): Promise<void> {
   if (typeof window === "undefined") {
     return
   }
@@ -47,7 +49,25 @@ export function setPreferences(preferences: Partial<UserPreferences>): void {
       ...preferences,
     }
     window.localStorage.setItem(PREFERENCES_KEY, JSON.stringify(updated))
+
+    // Audit log: preferences updated
+    await writeAuditEntry({
+      event_type: "settings.preferences_updated",
+      success: true,
+      metadata: {
+        fields_updated: Object.keys(preferences),
+      },
+    })
   } catch (error) {
     console.error("Failed to save preferences:", error)
+
+    // Audit log: preferences update failed
+    await writeAuditEntry({
+      event_type: "settings.preferences_updated",
+      success: false,
+      error_message: error instanceof Error ? error.message : String(error),
+    })
+
+    throw error
   }
 }

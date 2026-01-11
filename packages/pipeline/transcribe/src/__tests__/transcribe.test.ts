@@ -205,3 +205,25 @@ test("transcribeWavBuffer validates API keys and forwards payloads", async () =>
     globalThis.fetch = originalFetch
   }
 })
+
+test("transcribeWavBuffer enforces HTTPS for HIPAA compliance", async () => {
+  // Test that the hardcoded URL is HTTPS
+  const originalKey = process.env.OPENAI_API_KEY
+  const originalFetch = globalThis.fetch
+
+  process.env.OPENAI_API_KEY = "test-key"
+  let capturedUrl: string | undefined
+  
+  globalThis.fetch = (async (url) => {
+    capturedUrl = url as string
+    return new Response(JSON.stringify({ text: "test" }), { status: 200 })
+  }) as typeof fetch
+
+  try {
+    await transcribeWavBuffer(Buffer.from([1, 2, 3]), "test.wav")
+    assert(capturedUrl?.startsWith("https://"), "Whisper API URL must use HTTPS")
+  } finally {
+    process.env.OPENAI_API_KEY = originalKey
+    globalThis.fetch = originalFetch
+  }
+})

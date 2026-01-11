@@ -31,4 +31,19 @@ contextBridge.exposeInMainWorld('desktop', {
   getMediaAccessStatus: (mediaType) => ipcRenderer.invoke('media-permissions:status', mediaType),
   openScreenPermissionSettings: () => ipcRenderer.invoke('media-permissions:open-screen-settings'),
   getPrimaryScreenSource,
+  
+  // Secure storage API for HIPAA-compliant encryption
+  secureStorage: {
+    isAvailable: () => ipcRenderer.invoke('secure-storage:is-available'),
+    encrypt: (plaintext) => ipcRenderer.invoke('secure-storage:encrypt', plaintext),
+    decrypt: (encryptedBase64) => ipcRenderer.invoke('secure-storage:decrypt', encryptedBase64),
+    generateKey: () => ipcRenderer.invoke('secure-storage:generate-key'),
+  },
+
+  // Audit log API for HIPAA compliance
+  auditLog: {
+    writeEntry: (entry) => ipcRenderer.invoke('audit-log:write', entry),
+    readEntries: (filter) => ipcRenderer.invoke('audit-log:read', filter),
+    exportLog: (options) => ipcRenderer.invoke('audit-log:export', options),
+  },
 });

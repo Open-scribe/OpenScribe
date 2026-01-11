@@ -281,6 +281,38 @@ This directory should be safe to delete at any time and is git-ignored.
 
 ---
 
+## Security & HIPAA Compliance
+
+### Encryption in Transit (TLS/HTTPS)
+
+**Requirement**: All external API calls transmitting PHI must use HTTPS to ensure data is encrypted during transmission.
+
+**Implementation**:
+
+1. **External API Enforcement**:
+   - Whisper transcription API (`packages/pipeline/transcribe/src/providers/whisper-transcriber.ts`) validates HTTPS before sending audio data
+   - LLM API client (`packages/llm/src/index.ts`) validates HTTPS before sending transcript data
+   - Both services reject non-HTTPS URLs with explicit security errors
+
+2. **Production UI Warning**:
+   - The application displays a security banner if accessed over HTTP in production builds (non-localhost)
+   - Warning implemented via `useHttpsWarning` hook (`packages/ui/src/hooks/use-https-warning.ts`)
+   - Development builds skip this check for local testing convenience
+
+3. **Testing**:
+   - Unit tests verify HTTPS enforcement in `packages/pipeline/transcribe/src/__tests__/transcribe.test.ts`
+   - Integration tests validate HTTPS usage in `packages/llm/src/__tests__/llm-integration.test.ts`
+
+**Deployment Recommendations**:
+- **Desktop app (Electron)**: Automatically uses `localhost` (HTTPS not required for local IPC)
+- **Self-hosted web**: Configure reverse proxy (nginx/Apache) with TLS certificates
+- **Development**: HTTP on localhost is acceptable (PHI stays local)
+- **Production web**: Always serve via HTTPS or block non-localhost access
+
+For complete security implementation details, see [ENCRYPTION-GUIDE.md](ENCRYPTION-GUIDE.md) and [HIPAA-SECURITY-GAPS.md](HIPAA-SECURITY-GAPS.md).
+
+---
+
 ## Naming & Linting Rules
 
 These conventions are enforced by ESLint (`pnpm lint`) and the structure check (`pnpm lint:structure`):

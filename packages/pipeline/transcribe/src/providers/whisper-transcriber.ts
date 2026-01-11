@@ -1,6 +1,30 @@
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions"
 
+/**
+ * HIPAA Compliance: Validate that external endpoints use HTTPS to ensure PHI is encrypted in transit.
+ * This prevents accidental misconfiguration that could expose sensitive data.
+ */
+function validateHttpsUrl(url: string, serviceName: string): void {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== "https:") {
+      throw new Error(
+        `SECURITY ERROR: ${serviceName} endpoint must use HTTPS for HIPAA compliance. ` +
+        `Received: ${parsed.protocol}//${parsed.host}`
+      )
+    }
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(`Invalid ${serviceName} URL: ${url}`)
+    }
+    throw error
+  }
+}
+
 export async function transcribeWavBuffer(buffer: Buffer, filename: string, apiKey?: string): Promise<string> {
+  // Validate HTTPS before sending any PHI
+  validateHttpsUrl(WHISPER_URL, "Whisper API")
+  
   const key = apiKey || process.env.OPENAI_API_KEY
   if (!key) {
     throw new Error("Missing OPENAI_API_KEY. Please configure your API key in Settings.")

@@ -4,6 +4,7 @@ import {
   normalizeMarkdownSections,
   createEmptyMarkdownNote 
 } from "./clinical-models/markdown-note"
+import { debugLog, debugLogPHI, debugError, debugWarn } from "@storage"
 
 export type NoteLength = "short" | "long"
 
@@ -19,31 +20,31 @@ export interface ClinicalNoteRequest {
 export async function createClinicalNoteText(params: ClinicalNoteRequest): Promise<string> {
   const { transcript, patient_name, visit_reason, noteLength = "long", template, apiKey } = params
 
-  console.log("=".repeat(80))
-  console.log("GENERATING CLINICAL NOTE (MARKDOWN)")
-  console.log("=".repeat(80))
-  console.log(`Patient Name: ${patient_name || "Not provided"}`)
-  console.log(`Visit Reason: ${visit_reason || "Not provided"}`)
-  console.log(`Note Length: ${noteLength}`)
-  console.log(`Template: ${template || "default"}`)
-  console.log(`Transcript length: ${transcript.length} characters`)
+  debugLog("=".repeat(80))
+  debugLog("GENERATING CLINICAL NOTE (MARKDOWN)")
+  debugLog("=".repeat(80))
+  debugLogPHI(`Patient Name: ${patient_name || "Not provided"}`)
+  debugLogPHI(`Visit Reason: ${visit_reason || "Not provided"}`)
+  debugLog(`Note Length: ${noteLength}`)
+  debugLog(`Template: ${template || "default"}`)
+  debugLog(`Transcript length: ${transcript.length} characters`)
 
   if (!transcript || transcript.trim().length === 0) {
-    console.log("⚠️  Transcript is empty - returning empty note structure")
+    debugLog("⚠️  Transcript is empty - returning empty note structure")
     const emptyNote = createEmptyMarkdownNote()
-    console.log("=".repeat(80))
-    console.log("FINAL CLINICAL NOTE (EMPTY):")
-    console.log("-".repeat(80))
-    console.log(emptyNote)
-    console.log("-".repeat(80))
-    console.log("=".repeat(80))
+    debugLog("=".repeat(80))
+    debugLog("FINAL CLINICAL NOTE (EMPTY):")
+    debugLog("-".repeat(80))
+    debugLogPHI(emptyNote)
+    debugLog("-".repeat(80))
+    debugLog("=".repeat(80))
     return emptyNote
   }
 
-  console.log("📝 Transcript being used for note generation:")
-  console.log("-".repeat(80))
-  console.log(transcript)
-  console.log("-".repeat(80))
+  debugLog("📝 Transcript being used for note generation:")
+  debugLog("-".repeat(80))
+  debugLogPHI(transcript)
+  debugLog("-".repeat(80))
 
   // Use versioned prompts with markdown template
   const systemPrompt = prompts.clinicalNote.currentVersion.getSystemPrompt(noteLength, template)
@@ -56,9 +57,9 @@ export async function createClinicalNoteText(params: ClinicalNoteRequest): Promi
   })
 
   try {
-    console.log("🤖 Calling LLM to generate markdown clinical note...")
-    console.log(`📌 Using prompt version: ${prompts.clinicalNote.currentVersion.PROMPT_VERSION}`)
-    console.log(`🤖 Model: ${prompts.clinicalNote.currentVersion.MODEL_OPTIMIZED_FOR}`)
+    debugLog("🤖 Calling LLM to generate markdown clinical note...")
+    debugLog(`📌 Using prompt version: ${prompts.clinicalNote.currentVersion.PROMPT_VERSION}`)
+    debugLog(`🤖 Model: ${prompts.clinicalNote.currentVersion.MODEL_OPTIMIZED_FOR}`)
     
     const text = await runLLMRequest({
       system: systemPrompt,
@@ -74,23 +75,23 @@ export async function createClinicalNoteText(params: ClinicalNoteRequest): Promi
     // Normalize section headings to standard format
     const normalizedMarkdown = normalizeMarkdownSections(cleanedMarkdown)
 
-    console.log("=".repeat(80))
-    console.log("FINAL CLINICAL NOTE:")
-    console.log("=".repeat(80))
-    console.log(normalizedMarkdown)
-    console.log("=".repeat(80))
+    debugLog("=".repeat(80))
+    debugLog("FINAL CLINICAL NOTE:")
+    debugLog("=".repeat(80))
+    debugLogPHI(normalizedMarkdown)
+    debugLog("=".repeat(80))
 
     return normalizedMarkdown
   } catch (error) {
-    console.error("❌ Failed to generate clinical note:", error)
-    console.warn("⚠️  Returning empty note due to error")
+    debugError("❌ Failed to generate clinical note:", error)
+    debugWarn("⚠️  Returning empty note due to error")
     const emptyNote = createEmptyMarkdownNote()
-    console.log("=".repeat(80))
-    console.log("FINAL CLINICAL NOTE (ERROR FALLBACK):")
-    console.log("-".repeat(80))
-    console.log(emptyNote)
-    console.log("-".repeat(80))
-    console.log("=".repeat(80))
+    debugLog("=".repeat(80))
+    debugLog("FINAL CLINICAL NOTE (ERROR FALLBACK):")
+    debugLog("-".repeat(80))
+    debugLogPHI(emptyNote)
+    debugLog("-".repeat(80))
+    debugLog("=".repeat(80))
     return emptyNote
   }
 }

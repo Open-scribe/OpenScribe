@@ -1,6 +1,7 @@
 const path = require('path');
-const { app, BrowserWindow, shell, dialog, ipcMain, systemPreferences } = require('electron');
+const { app, BrowserWindow, shell, dialog, ipcMain, systemPreferences, safeStorage } = require('electron');
 const { ensureNextServer, stopNextServer } = require('./next-server');
+const crypto = require('crypto');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 const DEV_SERVER_URL = process.env.ELECTRON_START_URL || 'http://localhost:3000';
@@ -298,4 +299,109 @@ function registerPermissionHandlers() {
       return [];
     }
   });
+
+  // Secure storage IPC handlers for HIPAA-compliant key management
+  ipcMain.handle('secure-storage:is-available', () => {
+    return safeStorage.isEncryptionAvailable();
+  });
+
+  ipcMain.handle('secure-storage:encrypt', (_event, plaintext) => {
+    try {
+      if (!safeStorage.isEncryptionAvailable()) {
+        throw new Error('Encryption is not available on this system');
+      }
+      const buffer = safeStorage.encryptString(plaintext);
+      // Return as base64 string for JSON serialization
+      return buffer.toString('base64');
+    } catch (error) {
+      console.error('Encryption failed:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('secure-storage:decrypt', (_event, encryptedBase64) => {
+    try {
+      if (!safeStorage.isEncryptionAvailable()) {
+        throw new Error('Decryption is not available on this system');
+      }
+      const buffer = Buffer.from(encryptedBase64, 'base64');
+      return safeStorage.decryptString(buffer);
+    } catch (error) {
+      console.error('Decryption failed:', error);
+      throw error;
+    }
+  });
+
+  // Generate a secure random key for encryption
+  ipcMain.handle('secure-storage:generate-key', () => {
+    try {
+      // Generate 256-bit (32 byte) random key
+      const key = crypto.randomBytes(32);
+      return key.toString('base64');
+    } catch (error) {
+      console.error('Key generation failed:', error);
+      throw error;
+    }
+  });
+
+  // Audit log IPC handlers for HIPAA compliance
+  const fs = require('fs').promises;
+  const auditLogDir = path.join(app.getPath('userData'), 'audit-logs');
+
+  // Ensure audit log directory exists
+  fs.mkdir(auditLogDir, { recursive: true }).catch(err => {
+    console.error('Failed to create audit log directory:', err);
+  });
+
+  ipcMain.handle('audit-log:write', async (_event, entry) => {
+    try {
+      // For now, we'll return success and let the renderer handle localStorage
+      // Future enhancement: write to filesystem for archival
+      return { success: true };
+    } catch (error) {
+      console.error('Audit log write failed:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('audit-log:read', async (_event, filter) => {
+    try {
+      // For now, return empty array - renderer uses localStorage
+      // Future enhancement: read from archived filesystem logs
+      return [];
+    } catch (error) {
+      console.error('Audit log read failed:', error);
+      return [];
+    }
+  });
+
+  ipcMain.handle('audit-log:export', async (_event, options) => {
+    try {
+      const { data, filename } = options;
+      
+      // Show save dialog
+      const result = await dialog.showSaveDialog({
+        title: 'Export Audit Log',
+        defaultPath: path.join(app.getPath('downloads'), filename),
+        filters: [
+          { name: 'CSV Files', extensions: ['csv'] },
+          { name: 'JSON Files', extensions: ['json'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { success: false, canceled: true };
+      }
+
+      // Write the file
+      await fs.writeFile(result.filePath, data, 'utf8');
+      
+      return { success: true, filePath: result.filePath };
+    } catch (error) {
+      console.error('Audit log export failed:', error);
+      return { success: false, error: error.message };
+    }
+  });
 }
+
