@@ -9,12 +9,14 @@ export type NoteLength = "short" | "long"
 
 export interface UserPreferences {
   noteLength: NoteLength
+  recordingConsent: boolean // GDPR consent for audio recording
 }
 
 const PREFERENCES_KEY = "openscribe_preferences"
 
 const DEFAULT_PREFERENCES: UserPreferences = {
   noteLength: "long",
+  recordingConsent: false,
 }
 
 export function getPreferences(): UserPreferences {

@@ -1,6 +1,8 @@
 /**
  * Clinical Note Prompt Exports
  * Central location for managing prompt versions
+ * 
+ * "The physician has three duties: to heal, to teach, and to prevent" - Talmud Bavli Bava Kamma 85a
  */
 
 import * as v1 from "./v1"

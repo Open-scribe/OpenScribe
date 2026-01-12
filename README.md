@@ -1,5 +1,7 @@
 # OpenScribe
 
+*"And you shall teach them diligently to your children" (Deuteronomy 6:7) - OpenScribe embodies the mitzvah of preserving and transmitting medical knowledge through ethical AI assistance.*
+
 ## Project Overview
 
 OpenScribe is a local first MIT license open source AI Medical Scribe that helps clinicians record patient encounters, transcribe audio, and generate structured draft clinical notes using LLMs. The tool stores all data locally by default.

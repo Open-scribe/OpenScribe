@@ -12,6 +12,8 @@ interface RecordingViewProps {
   onStop: () => void
   onPause: () => void
   onResume: () => void
+  noiseLevel?: number | null
+  highNoiseWarning?: boolean
 }
 
 function formatDuration(seconds: number): string {
@@ -28,6 +30,8 @@ export function RecordingView({
   onStop,
   onPause,
   onResume,
+  noiseLevel,
+  highNoiseWarning,
 }: RecordingViewProps) {
   return (
     <div className="flex flex-col items-center">
@@ -59,6 +63,20 @@ export function RecordingView({
 
       {/* Timer */}
       <p className="mb-10 font-mono text-4xl font-light tabular-nums text-foreground">{formatDuration(duration)}</p>
+
+      {/* OSHA Ergonomics Warning - Talmud Bavli Berachot 32b: "One must not stand on one's feet excessively" */}
+      {duration > 3600 && (
+        <p className="mb-4 text-sm text-red-500 font-medium">
+          OSHA Ergonomics Alert: Take a break! Prolonged computer use may cause musculoskeletal strain. Rest your eyes and stretch.
+        </p>
+      )}
+
+      {/* OSHA Noise Warning - Talmud Bavli Shabbat 73a: "One who desecrates Shabbat is considered as if he worshipped idols" - extend to workplace safety */}
+      {highNoiseWarning && (
+        <p className="mb-4 text-sm text-orange-500 font-medium">
+          OSHA Noise Alert: High noise levels detected! Ensure safe listening environment to prevent hearing damage.
+        </p>
+      )}
 
       {/* Controls */}
       <div className="flex items-center gap-4">

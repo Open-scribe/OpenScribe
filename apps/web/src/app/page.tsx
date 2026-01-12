@@ -158,6 +158,8 @@ function HomePageContent() {
     pauseRecording,
     resumeRecording,
     error: recordingError,
+    noiseLevel,
+    highNoiseWarning,
   } = useAudioRecorder({
     onSegmentReady: handleSegmentReady,
     segmentDurationMs: SEGMENT_DURATION_MS,
@@ -357,6 +359,7 @@ function HomePageContent() {
     patient_name: string
     patient_id: string
     visit_reason: string
+    consent_given: boolean
   }) => {
     try {
       cleanupSession()
@@ -519,6 +522,8 @@ function HomePageContent() {
               onStop={handleStopRecording}
               onPause={pauseRecording}
               onResume={resumeRecording}
+              noiseLevel={noiseLevel}
+              highNoiseWarning={highNoiseWarning}
             />
           </div>
         )
