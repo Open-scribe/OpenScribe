@@ -63,6 +63,18 @@
       "@llm/*": [
         "packages/llm/src/*"
       ],
+      "@llm-medgemma": [
+        "packages/llm-medgemma/src/index.ts"
+      ],
+      "@llm-medgemma/*": [
+        "packages/llm-medgemma/src/*"
+      ],
+      "@medgemma-scribe": [
+        "packages/pipeline/medgemma-scribe/src/index.ts"
+      ],
+      "@medgemma-scribe/*": [
+        "packages/pipeline/medgemma-scribe/src/*"
+      ],
       "@storage": [
         "packages/storage/src/index.ts"
       ],

@@ -84,6 +84,8 @@ const nextConfig = {
       '@note-core': path.resolve(__dirname, '../packages/pipeline/note-core/src'),
       '@note-rendering': path.resolve(__dirname, '../packages/pipeline/render/src'),
       '@llm': path.resolve(__dirname, '../packages/llm/src'),
+      '@llm-medgemma': path.resolve(__dirname, '../packages/llm-medgemma/src'),
+      '@medgemma-scribe': path.resolve(__dirname, '../packages/pipeline/medgemma-scribe/src'),
       '@storage': path.resolve(__dirname, '../packages/storage/src'),
       '@ui': path.resolve(__dirname, '../packages/ui/src'),
       '@ui/lib': path.resolve(__dirname, '../packages/ui/src/lib'),

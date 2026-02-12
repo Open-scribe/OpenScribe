@@ -12,6 +12,8 @@
     "dev": "next dev apps/web --webpack -p 3001",
     "dev:desktop": "concurrently -k \"pnpm dev\" \"pnpm electron:dev\"",
     "electron:dev": "wait-on tcp:3001 && cross-env NODE_ENV=development ELECTRON_START_URL=http://localhost:3001 electron packages/shell/main.js",
+    "medasr:server": ". .venv-med/bin/activate && python scripts/medasr_server.py --port 8001",
+    "dev:local": "concurrently -k \"pnpm medasr:server\" \"pnpm dev\"",
     "lint": "pnpm lint:structure && eslint --config config/eslint.config.mjs .",
     "lint:structure": "node config/scripts/check-structure.mjs",
     "start": "next start apps/web",
@@ -23,7 +25,9 @@
     "test:api": "pnpm build:test && node --test build/tests-dist/pipeline/eval/src/tests/api-simple.test.js",
     "test:llm": "pnpm build:test && node --test build/tests-dist/llm/src/__tests__/*.test.js",
     "test:note": "pnpm build:test && node --test build/tests-dist/pipeline/note-core/src/__tests__/*.test.js",
-    "build:desktop": "pnpm build && node packages/shell/scripts/prepare-next.js && electron-builder --mac"
+    "build:desktop": "pnpm build && node packages/shell/scripts/prepare-next.js && electron-builder --mac",
+    "medgemma:scribe": "node scripts/medgemma-scribe.mjs",
+    "medscribe:local": ". .venv-med/bin/activate && python scripts/local_medscribe.py"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",

@@ -16,7 +16,9 @@
     "../packages/pipeline/audio-ingest/src/**/*.ts",
     "../packages/pipeline/transcribe/src/**/*.ts",
     "../packages/pipeline/note-core/src/**/*.ts",
+    "../packages/pipeline/medgemma-scribe/src/**/*.ts",
     "../packages/llm/src/**/*.ts",
+    "../packages/llm-medgemma/src/**/*.ts",
     "../packages/storage/src/**/*.ts"
   ],
   "exclude": [

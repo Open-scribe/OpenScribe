@@ -68,6 +68,7 @@ packages/pipeline/
   assemble/
   note-core/
   render/
+  medgemma-scribe/
   eval/
 ```
 
@@ -81,6 +82,9 @@ packages/pipeline/
   Uses `.md` templates for easy customization.
 * **render** – React components for presenting structured notes and
   exporters (SOAP renderer, specialty variants).
+* **medgemma-scribe** – fully local, text-only MedGemma scribe workflow.
+  Maintains rolling transcript window, encounter state JSON, and draft
+  note sections for incremental updates. No audio support.
 * **eval** – regression/evaluation harness plus anonymized fixtures and
   test cases (`pnpm test:audio` compiles this package).
 
@@ -513,5 +517,4 @@ Centralized tool configuration
 | Desktop window | `packages/shell/main.js` |
 | Server action | `apps/web/src/app/actions.ts` |
 | Shared hook | `packages/ui/src/hooks/` |
-
 

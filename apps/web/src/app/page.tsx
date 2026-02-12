@@ -21,6 +21,19 @@ type StepStatus = "pending" | "in-progress" | "done" | "failed"
 const SEGMENT_DURATION_MS = 10000
 const OVERLAP_MS = 250
 
+function resolveApiBaseUrl(): string {
+  if (typeof window === "undefined") return ""
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim()
+  if (configured) {
+    return configured.replace(/\/+$/, "")
+  }
+  const origin = window.location?.origin
+  if (origin && origin !== "null") {
+    return origin
+  }
+  return "http://localhost:3001"
+}
+
 function HomePageContent() {
   const { encounters, addEncounter, updateEncounter, deleteEncounter: removeEncounter, refresh } = useEncounters()
   
@@ -37,6 +50,7 @@ function HomePageContent() {
   const eventSourceRef = useRef<EventSource | null>(null)
   const finalTranscriptRef = useRef<string>("")
   const finalRecordingRef = useRef<Blob | null>(null)
+  const apiBaseUrlRef = useRef<string>(resolveApiBaseUrl())
 
   const [showPermissionsDialog, setShowPermissionsDialog] = useState(false)
   const permissionCheckInProgressRef = useRef(false)
@@ -122,6 +136,7 @@ function HomePageContent() {
 
   const { enqueueSegment, resetQueue } = useSegmentUpload(sessionId, {
     onError: handleUploadError,
+    apiBaseUrl: apiBaseUrlRef.current || undefined,
   })
 
   const cleanupSession = useCallback(() => {
@@ -278,7 +293,8 @@ function HomePageContent() {
   )
 
   const handleStreamError = useCallback((event: MessageEvent | Event) => {
-    debugError("Transcription stream error", event)
+    const readyState = eventSourceRef.current?.readyState
+    debugError("Transcription stream error", { event, readyState, apiBaseUrl: apiBaseUrlRef.current })
     setTranscriptionStatus("failed")
   }, [])
 
@@ -286,7 +302,11 @@ function HomePageContent() {
     if (!sessionId) return
     
     debugLog('[EventSource] Connecting to session:', sessionId)
-    const source = new EventSource(`/api/transcription/stream/${sessionId}`)
+    const baseUrl = apiBaseUrlRef.current
+    const streamUrl = baseUrl
+      ? `${baseUrl.replace(/\/+$/, "")}/api/transcription/stream/${sessionId}`
+      : `/api/transcription/stream/${sessionId}`
+    const source = new EventSource(streamUrl)
     eventSourceRef.current = source
 
     const segmentListener = (event: Event) => handleSegmentEvent(event as MessageEvent)
@@ -390,7 +410,11 @@ function HomePageContent() {
       const formData = new FormData()
       formData.append("session_id", activeSessionId)
       formData.append("file", blob, `${activeSessionId}-full.wav`)
-      const response = await fetch("/api/transcription/final", {
+      const baseUrl = apiBaseUrlRef.current
+      const url = baseUrl
+        ? `${baseUrl.replace(/\/+$/, "")}/api/transcription/final`
+        : "/api/transcription/final"
+      const response = await fetch(url, {
         method: "POST",
         body: formData,
       })

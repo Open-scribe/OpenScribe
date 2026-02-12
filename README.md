@@ -57,6 +57,24 @@ pnpm dev          # Web app → http://localhost:3001
 pnpm dev:desktop  # OR desktop app (Electron)
 ```
 
+---
+
+## Hosted vs Local-Only Modes
+
+OpenScribe supports **hosted** (default) and **local-only** workflows.
+
+### Hosted (default)
+- Transcription: OpenAI Whisper API
+- Notes: Anthropic Claude (or other hosted LLM)
+- Requires API keys in `apps/web/.env.local`
+
+### Local-only (optional)
+- Transcription: local MedASR
+- Notes: local MedGemma via llama.cpp
+- No cloud inference
+
+See `/Users/sammargolis/OpenScribe/local-only/README.md` for the fully local setup.
+
 ### FYI Getting API Keys
 
 **OpenAI** (transcription): [platform.openai.com/api-keys](https://platform.openai.com/api-keys) - Sign up → API Keys → Create new secret key
@@ -84,6 +102,13 @@ OpenScribe exists to provide a simple, open-source alternative to cloud dependen
 - **Local-first**: All data (audio recordings, transcripts, notes) is stored locally in the browser by default
 - **Privacy-conscious**: No data collection, no analytics, no cloud dependency unless explicitly configured by the user
 - **Modular**: Components can be swapped or extended (e.g., different LLM providers, transcription services)
+
+## Local MedGemma (Text-Only) Scribe
+
+This repo now includes a fully local, **text-only** MedGemma scribe workflow in
+`packages/pipeline/medgemma-scribe`. It requires **pre-transcribed text** and
+does not perform speech-to-text. See
+`packages/pipeline/medgemma-scribe/README.md` for setup and usage.
 
 ## Project Resources
 
@@ -189,7 +214,26 @@ See [architecture.md](./architecture.md) for complete details.
 
 ## Limitations & Disclaimers
  
-**HIPAA Compliance**: OpenScribe includes features like encrypted local storage and audit logging that are foundational steps toward HIPAA compliance, but these alone do not make the application HIPAA-compliant. Healthcare providers using this software are responsible for ensuring full compliance with HIPAA regulations, including signing Business Associate Agreements (BAAs) with any third-party service providers (e.g., OpenAI, Anthropic), implementing appropriate access controls, conducting risk assessments, and maintaining all required safeguards and documentation.
+**HIPAA Compliance**: OpenScribe includes foundational privacy/security features, but this alone does not make the application HIPAA-compliant. Below is what is already built, followed by a checklist a health system must complete to operate compliantly.
+
+**Built (foundational rails)**
+- AES-GCM encrypted localStorage for PHI at rest in the browser
+- Audio processed in-memory and not persisted
+- TLS/HTTPS for external API calls (Whisper, Claude)
+- No analytics/telemetry or cloud sync by default (local-first)
+- HTTPS-only enforcement in production with HTTP warning
+
+**Health System Checklist (required to run compliantly)**
+- Execute BAAs with all PHI-touching vendors (e.g., OpenAI, Anthropic, hosting providers)
+- Perform and document HIPAA Security Rule risk analysis and remediation plan
+- Implement access controls (SSO/MFA, least-privilege, session timeouts)
+- Establish audit logging, log review processes, and retention policies
+- Define data retention, backup, and secure deletion procedures for PHI
+- Configure device, endpoint, and physical safeguards (disk encryption, MDM, secure workstations)
+- Document policies and procedures (incident response, breach notification, sanctions)
+- Train workforce on HIPAA/privacy/security requirements
+- Establish key management and secret rotation procedures
+- Validate network/security posture (secure deployment, vulnerability management)
 
 **No EHR Integration**: Standalone tool  
 **Browser Storage Limits**: ~5-10MB typical  

@@ -23,7 +23,15 @@ const allowedRootFiles = new Set([
 const buildArtifacts = new Set([".next", ".tests-dist", "dist"])
 const configPattern = /\.config\.(?:js|cjs|mjs|ts)$/
 const kebabCase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
-const pipelineStages = new Set(["audio-ingest", "transcribe", "assemble", "note-core", "render", "eval"])
+const pipelineStages = new Set([
+  "audio-ingest",
+  "transcribe",
+  "assemble",
+  "note-core",
+  "render",
+  "medgemma-scribe",
+  "eval",
+])
 
 const errors = []
 
