@@ -1,8 +1,11 @@
 /**
- * Audit Logging for HIPAA Compliance
+ * Audit Logging for HIPAA and GDPR Compliance
  * 
  * This module provides local-only, encrypted audit logging for all operations
  * that create, read, update, or delete PHI (Protected Health Information).
+ * 
+ * "He who saves a single life, it is as if he saved the entire world" - Talmud Bavli Sanhedrin 37a
+ * Ensuring accountability in healthcare data handling.
  * 
  * Key requirements:
  * - All entries stored encrypted using secure-storage.ts patterns

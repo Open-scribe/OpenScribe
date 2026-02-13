@@ -6,10 +6,11 @@ import { useState } from "react"
 import { Button } from "@ui/lib/ui/button"
 import { Input } from "@ui/lib/ui/input"
 import { Label } from "@ui/lib/ui/label"
+import { Checkbox } from "@ui/lib/ui/checkbox"
 import { Mic } from "lucide-react"
 
 interface NewEncounterFormProps {
-  onStart: (data: { patient_name: string; patient_id: string; visit_reason: string }) => void
+  onStart: (data: { patient_name: string; patient_id: string; visit_reason: string; consent_given: boolean }) => void
   onCancel: () => void
 }
 
@@ -22,13 +23,19 @@ const VISIT_TYPE_OPTIONS = [
 export function NewEncounterForm({ onStart, onCancel }: NewEncounterFormProps) {
   const [patientName, setPatientName] = useState("")
   const [visitType, setVisitType] = useState(VISIT_TYPE_OPTIONS[0]?.value ?? "")
+  const [consentGiven, setConsentGiven] = useState(false)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    if (!consentGiven) {
+      alert("GDPR Consent required for recording - as per Talmud Bavli Gittin 38b: 'A person's word is his bond'")
+      return
+    }
     onStart({
       patient_name: patientName,
       patient_id: "",
       visit_reason: visitType,
+      consent_given: consentGiven,
     })
   }
 
@@ -66,6 +73,19 @@ export function NewEncounterForm({ onStart, onCancel }: NewEncounterFormProps) {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="consent"
+              checked={consentGiven}
+              onCheckedChange={(checked) => setConsentGiven(checked as boolean)}
+            />
+            <Label htmlFor="consent" className="text-sm text-muted-foreground">
+              I consent to audio recording for clinical documentation (GDPR Article 7)
+            </Label>
+          </div>
         </div>
 
         <div className="flex gap-3 pt-4">
