@@ -9,7 +9,8 @@ OpenScribe is a free MIT license open source AI Medical Scribe that helps clinic
 - [Contributing](./CONTRIBUTING.md)
 
 
-**⚠️ NOT READY FOR CLINICAL USE ⚠️**: This software is currently in early development (v0.x) and is NOT suitable for clinical practice yet. It is intended for evaluation, testing, and development purposes only. Do not use with real patient data or in clinical settings.
+**⚠️ NOT READY FOR CLINICAL USE ⚠️**: This software is currently in early development (v0.x) and is NOT suitable for clinical practice yet. It is intended for evaluation, testing, and development purposes only. 
+- HIPAA Compliant version is currently in the works.  Join the Whatsapp for more information when the version is launched.
 
 ## Demo
 
@@ -49,6 +50,8 @@ OPENAI_API_KEY=sk-proj-YOUR_KEY_HERE
 ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
 # NEXT_PUBLIC_SECURE_STORAGE_KEY is auto-generated, don't modify
 ```
+
+OR RUN IT TRULY LOCAL ONLY with the local MedASR and MedGemma models seee /OpenScribe/local-only/README.md` for the fully local setup.
 
 ### 4. Start the App
 
