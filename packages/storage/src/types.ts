@@ -121,6 +121,11 @@ declare global {
       readEntries: (filter?: unknown) => Promise<unknown[]>
       exportLog: (options: { data: string; filename: string }) => Promise<{ success: boolean; canceled?: boolean; filePath?: string; error?: string }>
     }
+    openscribeBackend?: {
+      invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
+      on: (channel: string, listener: (event: unknown, payload: unknown) => void) => void
+      removeAllListeners: (channel: string) => void
+    }
   }
 
   interface Window {

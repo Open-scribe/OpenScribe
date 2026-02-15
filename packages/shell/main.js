@@ -1,7 +1,14 @@
 const path = require('path');
-const { app, BrowserWindow, shell, dialog, ipcMain, systemPreferences, safeStorage } = require('electron');
+const { app, BrowserWindow, shell, dialog, ipcMain, systemPreferences, safeStorage, globalShortcut } = require('electron');
 const { ensureNextServer, stopNextServer } = require('./next-server');
 const crypto = require('crypto');
+const {
+  registerOpenScribeIpcHandlers,
+  registerGlobalHotkey,
+  initTelemetry,
+  shutdownTelemetry,
+  trackEvent,
+} = require('./openscribe-backend');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 const DEV_SERVER_URL = process.env.ELECTRON_START_URL || 'http://localhost:3000';
@@ -97,6 +104,10 @@ const boot = async () => {
 
   registerPermissionHandlers();
   mainWindow = await createMainWindow();
+  registerOpenScribeIpcHandlers(mainWindow);
+  registerGlobalHotkey(mainWindow);
+  await initTelemetry();
+  trackEvent('app_opened');
 
   app.on('activate', async () => {
     // Get all windows including any that might be hidden or minimized
@@ -196,6 +207,11 @@ app.on('before-quit', async (event) => {
     // Now allow the app to quit
     app.exit(0);
   }
+});
+
+app.on('will-quit', async () => {
+  globalShortcut.unregisterAll();
+  await shutdownTelemetry();
 });
 
 app.on('window-all-closed', () => {
@@ -404,4 +420,3 @@ function registerPermissionHandlers() {
     }
   });
 }
-

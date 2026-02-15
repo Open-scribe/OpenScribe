@@ -21,6 +21,36 @@ type StepStatus = "pending" | "in-progress" | "done" | "failed"
 const SEGMENT_DURATION_MS = 10000
 const OVERLAP_MS = 250
 
+type BackendProcessingEvent = {
+  success?: boolean
+  sessionName?: string
+  message?: string
+  error?: string
+  meetingData?: {
+    session_info?: {
+      name?: string
+      summary_file?: string
+      transcript_file?: string
+      duration_seconds?: number
+      duration_minutes?: number
+      note_type?: string
+    }
+    summary?: string
+    participants?: string[]
+    key_points?: string[]
+    action_items?: string[]
+    clinical_note?: string
+    transcript?: string
+  }
+}
+
+function templateForVisitReason(visitReason?: string): "default" | "soap" {
+  if (!visitReason) return "default"
+  const normalized = visitReason.toLowerCase()
+  if (normalized === "problem_visit" || normalized === "soap") return "soap"
+  return "default"
+}
+
 function resolveApiBaseUrl(): string {
   if (typeof window === "undefined") return ""
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim()
@@ -51,12 +81,19 @@ function HomePageContent() {
   const finalTranscriptRef = useRef<string>("")
   const finalRecordingRef = useRef<Blob | null>(null)
   const apiBaseUrlRef = useRef<string>(resolveApiBaseUrl())
+  const lastMeetingDataRef = useRef<BackendProcessingEvent["meetingData"] | null>(null)
 
   const [showPermissionsDialog, setShowPermissionsDialog] = useState(false)
   const permissionCheckInProgressRef = useRef(false)
 
   const [showSettingsDialog, setShowSettingsDialog] = useState(false)
   const [noteLength, setNoteLengthState] = useState<NoteLength>("long")
+  const [localBackendAvailable, setLocalBackendAvailable] = useState(false)
+  const [localDurationMs, setLocalDurationMs] = useState(0)
+  const [localPaused, setLocalPaused] = useState(false)
+  const localSessionNameRef = useRef<string | null>(null)
+  const localBackendRef = useRef<Window["desktop"]["openscribeBackend"] | null>(null)
+  const localLastTickRef = useRef<number | null>(null)
 
   useEffect(() => {
     const prefs = getPreferences()
@@ -64,6 +101,13 @@ function HomePageContent() {
 
     // Initialize audit logging system (cleanup old entries, setup periodic cleanup)
     void initializeAuditLog()
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const backend = window.desktop?.openscribeBackend
+    localBackendRef.current = backend ?? null
+    setLocalBackendAvailable(!!backend)
   }, [])
 
   useEffect(() => {
@@ -150,6 +194,58 @@ function HomePageContent() {
     resetQueue()
   }, [resetQueue])
 
+  const buildNoteFromMeeting = useCallback((meeting: BackendProcessingEvent["meetingData"], visitReason?: string) => {
+    if (!meeting) return ""
+    if (meeting.clinical_note && meeting.clinical_note.trim()) return meeting.clinical_note
+
+    const summary = meeting.summary || ""
+    const keyPoints = meeting.key_points || []
+    const actionItems = meeting.action_items || []
+    const templateName = templateForVisitReason(visitReason || meeting.session_info?.note_type)
+
+    if (templateName === "soap") {
+      return [
+        "# SOAP Note",
+        "",
+        "## Subjective",
+        "### Chief Complaint",
+        "",
+        "### History of Present Illness",
+        summary || "",
+        "",
+        "### Review of Systems",
+        "",
+        "## Objective",
+        "### Physical Examination",
+        "",
+        "## Assessment",
+        keyPoints.length ? keyPoints.map((p) => `- ${p}`).join("\n") : "",
+        "",
+        "## Plan",
+        actionItems.length ? actionItems.map((p) => `- ${p}`).join("\n") : "",
+      ].join("\n")
+    }
+
+    return [
+      "# Clinical Note",
+      "",
+      "## Chief Complaint",
+      "",
+      "## History of Present Illness",
+      summary || "",
+      "",
+      "## Review of Systems",
+      "",
+      "## Physical Exam",
+      "",
+      "## Assessment",
+      keyPoints.length ? keyPoints.map((p) => `- ${p}`).join("\n") : "",
+      "",
+      "## Plan",
+      actionItems.length ? actionItems.map((p) => `- ${p}`).join("\n") : "",
+    ].join("\n")
+  }, [])
+
   const handleSegmentReady = useCallback(
     (segment: RecordedSegment) => {
       if (!sessionIdRef.current) return
@@ -228,6 +324,7 @@ function HomePageContent() {
       const enc = encountersRef.current.find((e: Encounter) => e.id === encounterId)
       const patientName = enc?.patient_name || ""
       const visitReason = enc?.visit_reason || ""
+      const template = templateForVisitReason(visitReason)
 
       debugLog("\n" + "=".repeat(80))
       debugLog("GENERATING CLINICAL NOTE")
@@ -246,6 +343,7 @@ function HomePageContent() {
           patient_name: patientName,
           visit_reason: visitReason,
           noteLength: noteLengthRef.current,
+          template,
         })
         await updateEncounterRef.current(encounterId, {
           note_text: note,
@@ -299,7 +397,7 @@ function HomePageContent() {
   }, [])
 
   useEffect(() => {
-    if (!sessionId) return
+    if (!sessionId || localBackendAvailable) return
     
     debugLog('[EventSource] Connecting to session:', sessionId)
     const baseUrl = apiBaseUrlRef.current
@@ -379,14 +477,18 @@ function HomePageContent() {
     visit_reason: string
   }) => {
     try {
-      cleanupSession()
+      if (!localBackendAvailable) {
+        cleanupSession()
+      }
       finalTranscriptRef.current = ""
       finalRecordingRef.current = null
       setTranscriptionStatus("pending")
       setNoteGenerationStatus("pending")
 
       const session = crypto.randomUUID()
-      startNewSession(session)
+      if (!localBackendAvailable) {
+        startNewSession(session)
+      }
 
       const encounter = await addEncounter({
         ...data,
@@ -396,7 +498,16 @@ function HomePageContent() {
       })
 
       currentEncounterIdRef.current = encounter.id
-      await startRecording()
+      if (localBackendAvailable && localBackendRef.current) {
+        const sessionName = `OpenScribe ${encounter.id}`
+        localSessionNameRef.current = sessionName
+        setLocalDurationMs(0)
+        setLocalPaused(false)
+        localLastTickRef.current = Date.now()
+        await localBackendRef.current.invoke("start-recording-ui", sessionName, data.visit_reason)
+      } else {
+        await startRecording()
+      }
       setView({ type: "recording", encounterId: encounter.id })
       setTranscriptionStatus("in-progress")
     } catch (err) {
@@ -450,6 +561,21 @@ function HomePageContent() {
     const encounter = currentEncounter
     if (!encounter) return
 
+    await updateEncounter(encounter.id, {
+      status: "processing",
+      recording_duration: duration,
+    })
+
+    setView({ type: "processing", encounterId: encounter.id })
+
+    if (localBackendAvailable && localBackendRef.current) {
+      setNoteGenerationStatus("in-progress")
+      await localBackendRef.current.invoke("stop-recording-ui")
+      localLastTickRef.current = null
+      setLocalPaused(false)
+      return
+    }
+
     const audioBlob = await stopRecording()
     if (!audioBlob) {
       setTranscriptionStatus("failed")
@@ -457,13 +583,6 @@ function HomePageContent() {
     }
 
     finalRecordingRef.current = audioBlob
-
-    await updateEncounter(encounter.id, {
-      status: "processing",
-      recording_duration: duration,
-    })
-
-    setView({ type: "processing", encounterId: encounter.id })
 
     const activeSessionId = sessionIdRef.current
     if (activeSessionId) {
@@ -474,7 +593,64 @@ function HomePageContent() {
     }
   }
 
+  const handlePauseRecording = async () => {
+    if (localBackendAvailable && localBackendRef.current) {
+      await localBackendRef.current.invoke("pause-recording-ui")
+      setLocalPaused(true)
+      return
+    }
+    await pauseRecording()
+  }
+
+  const handleResumeRecording = async () => {
+    if (localBackendAvailable && localBackendRef.current) {
+      await localBackendRef.current.invoke("resume-recording-ui")
+      setLocalPaused(false)
+      localLastTickRef.current = Date.now()
+      return
+    }
+    await resumeRecording()
+  }
+
   const handleRetryTranscription = async () => {
+    if (localBackendAvailable && localBackendRef.current) {
+      const meeting = lastMeetingDataRef.current
+      const summaryFile = meeting?.session_info?.summary_file as string | undefined
+      if (!summaryFile) {
+        setTranscriptionStatus("failed")
+        return
+      }
+      setTranscriptionStatus("in-progress")
+      setNoteGenerationStatus("in-progress")
+      try {
+        await localBackendRef.current.invoke("reprocess-meeting", summaryFile)
+        const result = await localBackendRef.current.invoke("list-meetings")
+        const parsed = result as { success?: boolean; meetings?: BackendProcessingEvent["meetingData"][] }
+        const refreshed = parsed?.meetings?.find((m) => m?.session_info?.summary_file === summaryFile)
+        if (refreshed && currentEncounterIdRef.current) {
+          lastMeetingDataRef.current = refreshed
+          const transcript = refreshed.transcript || ""
+          const encounter = encountersRef.current.find((e: Encounter) => e.id === currentEncounterIdRef.current)
+          const noteText = buildNoteFromMeeting(refreshed, encounter?.visit_reason)
+          await updateEncounterRef.current(currentEncounterIdRef.current, {
+            status: "completed",
+            transcript_text: transcript,
+            note_text: noteText,
+          })
+          setTranscriptionStatus("done")
+          setNoteGenerationStatus("done")
+          setView({ type: "viewing", encounterId: currentEncounterIdRef.current })
+        } else {
+          setTranscriptionStatus("failed")
+          setNoteGenerationStatus("failed")
+        }
+      } catch (error) {
+        setTranscriptionStatus("failed")
+        setNoteGenerationStatus("failed")
+      }
+      return
+    }
+
     const blob = finalRecordingRef.current
     const activeSessionId = sessionIdRef.current
     if (!blob || !activeSessionId) return
@@ -487,11 +663,70 @@ function HomePageContent() {
   }
 
   const handleRetryNoteGeneration = async () => {
+    if (localBackendAvailable) {
+      return
+    }
     const transcript = finalTranscriptRef.current
     const encounterId = currentEncounter?.id
     if (!encounterId || !transcript) return
     await processEncounterForNoteGeneration(encounterId, transcript)
   }
+
+  useEffect(() => {
+    if (!localBackendAvailable || !localBackendRef.current) return
+
+    const backend = localBackendRef.current
+    const handler = async (_event: unknown, payload: unknown) => {
+      const data = payload as BackendProcessingEvent
+      const encounterId = currentEncounterIdRef.current
+      if (!encounterId) return
+
+      if (!data.success) {
+        setTranscriptionStatus("failed")
+        setNoteGenerationStatus("failed")
+        await updateEncounterRef.current(encounterId, { status: "transcription_failed" })
+        return
+      }
+
+      const meeting = data.meetingData
+      lastMeetingDataRef.current = meeting ?? null
+      const transcript = meeting?.transcript || ""
+      const encounter = encountersRef.current.find((e: Encounter) => e.id === encounterId)
+      const noteText = buildNoteFromMeeting(meeting, encounter?.visit_reason)
+      const durationSeconds = meeting?.session_info?.duration_seconds
+
+      finalTranscriptRef.current = transcript
+
+      await updateEncounterRef.current(encounterId, {
+        status: "completed",
+        transcript_text: transcript,
+        note_text: noteText,
+        recording_duration: durationSeconds ? Math.round(durationSeconds / 1000) : duration,
+      })
+
+      setTranscriptionStatus("done")
+      setNoteGenerationStatus("done")
+      setView({ type: "viewing", encounterId })
+    }
+
+    backend.on("processing-complete", handler)
+    return () => {
+      backend.removeAllListeners("processing-complete")
+    }
+  }, [buildNoteFromMeeting, duration, localBackendAvailable])
+
+  useEffect(() => {
+    if (!localBackendAvailable || view.type !== "recording") return
+    const tick = () => {
+      const now = Date.now()
+      if (localLastTickRef.current && !localPaused) {
+        setLocalDurationMs((prev) => prev + (now - localLastTickRef.current!))
+      }
+      localLastTickRef.current = now
+    }
+    const interval = window.setInterval(tick, 1000)
+    return () => window.clearInterval(interval)
+  }, [localBackendAvailable, localPaused, view.type])
 
   const currentEncounter = encounters.find((e: Encounter) => "encounterId" in view && e.id === view.encounterId)
   const selectedEncounter = view.type === "viewing" ? encounters.find((e: Encounter) => e.id === view.encounterId) : null
@@ -538,11 +773,11 @@ function HomePageContent() {
             <RecordingView
               patientName={currentEncounter?.patient_name || ""}
               patientId={currentEncounter?.patient_id || ""}
-              duration={duration}
-              isPaused={isPaused}
+              duration={localBackendAvailable ? Math.floor(localDurationMs / 1000) : duration}
+              isPaused={localBackendAvailable ? localPaused : isPaused}
               onStop={handleStopRecording}
-              onPause={pauseRecording}
-              onResume={resumeRecording}
+              onPause={handlePauseRecording}
+              onResume={handleResumeRecording}
             />
           </div>
         )

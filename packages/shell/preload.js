@@ -46,4 +46,68 @@ contextBridge.exposeInMainWorld('desktop', {
     readEntries: (filter) => ipcRenderer.invoke('audit-log:read', filter),
     exportLog: (options) => ipcRenderer.invoke('audit-log:export', options),
   },
+
+  openscribeBackend: {
+    invoke: (channel, ...args) => {
+      const allowed = new Set([
+        'check-microphone-permission',
+        'request-microphone-permission',
+        'start-recording',
+        'stop-recording',
+        'get-status',
+        'process-recording',
+        'test-system',
+        'select-audio-file',
+        'list-meetings',
+        'clear-state',
+        'reprocess-meeting',
+        'query-transcript',
+        'update-meeting',
+        'delete-meeting',
+        'get-queue-status',
+        'start-recording-ui',
+        'pause-recording-ui',
+        'resume-recording-ui',
+        'stop-recording-ui',
+        'startup-setup-check',
+        'setup-ollama-and-model',
+        'setup-whisper',
+        'setup-test',
+        'get-app-version',
+        'get-ai-prompts',
+        'check-model-installed',
+        'list-models',
+        'get-current-model',
+        'set-model',
+        'get-notifications',
+        'set-notifications',
+        'get-telemetry',
+        'set-telemetry',
+        'pull-model',
+        'check-for-updates',
+        'check-announcements',
+        'open-release-page',
+      ]);
+
+      if (!allowed.has(channel)) {
+        throw new Error(`Blocked IPC channel: ${channel}`);
+      }
+      return ipcRenderer.invoke(channel, ...args);
+    },
+    on: (channel, listener) => {
+      const allowed = new Set([
+        'debug-log',
+        'toggle-recording-hotkey',
+        'processing-complete',
+        'model-pull-progress',
+        'model-pull-complete',
+        'meetings-refreshed',
+      ]);
+      if (!allowed.has(channel)) {
+        throw new Error(`Blocked IPC event: ${channel}`);
+      }
+      ipcRenderer.on(channel, listener);
+    },
+    removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel),
+  },
 });
