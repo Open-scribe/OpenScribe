@@ -26,6 +26,29 @@ function getBackendCwd() {
   return path.join(process.cwd(), 'local-only', 'openscribe-backend', 'dist', 'openscribe-backend');
 }
 
+function resolveBackendCommand(args = []) {
+  const backendPath = getBackendPath();
+  const backendCwd = getBackendCwd();
+
+  if (app.isPackaged || fs.existsSync(backendPath)) {
+    return { command: backendPath, args, cwd: backendCwd, mode: 'binary' };
+  }
+
+  const scriptPath = path.join(process.cwd(), 'local-only', 'openscribe-backend', 'simple_recorder.py');
+  const pythonCommand = process.platform === 'win32' ? 'python' : 'python3';
+
+  if (fs.existsSync(scriptPath)) {
+    return {
+      command: pythonCommand,
+      args: [scriptPath, ...args],
+      cwd: path.dirname(scriptPath),
+      mode: 'python-fallback',
+    };
+  }
+
+  return { command: backendPath, args, cwd: backendCwd, mode: 'missing' };
+}
+
 // Telemetry state
 let posthogClient = null;
 let telemetryEnabled = false;
@@ -47,8 +70,12 @@ async function initTelemetry() {
   if (!PostHog) return;
   try {
     const result = await new Promise((resolve, reject) => {
-      const proc = spawn(getBackendPath(), ['get-telemetry'], {
-        cwd: getBackendCwd(),
+      const backend = resolveBackendCommand(['get-telemetry']);
+      if (backend.mode === 'python-fallback') {
+        console.warn('Backend binary missing; using Python fallback for telemetry.');
+      }
+      const proc = spawn(backend.command, backend.args, {
+        cwd: backend.cwd,
       });
       let stdout = '';
       proc.stdout.on('data', (data) => {
@@ -154,16 +181,19 @@ function registerGlobalHotkey(mainWindow) {
 // Backend communication
 function runPythonScript(mainWindow, script, args = [], silent = false) {
   return new Promise((resolve, reject) => {
-    const backendPath = getBackendPath();
-    const command = `${backendPath} ${args.join(' ')}`;
+    const backend = resolveBackendCommand(args);
+    const command = `${backend.command} ${backend.args.join(' ')}`;
 
     console.log('Running:', command);
     if (!silent) {
       sendDebugLog(mainWindow, `$ openscribe-backend ${args.join(' ')}`);
+      if (backend.mode === 'python-fallback') {
+        sendDebugLog(mainWindow, 'Backend executable not found; using Python fallback.');
+      }
     }
 
-    const process = spawn(backendPath, args, {
-      cwd: getBackendCwd(),
+    const process = spawn(backend.command, backend.args, {
+      cwd: backend.cwd,
       env: {
         ...globalThis.process.env,
         PYTHONUNBUFFERED: '1',
@@ -584,9 +614,10 @@ function registerOpenScribeIpcHandlers(mainWindow) {
       sendDebugLog(mainWindow, '$ openscribe-backend record 7200');
 
       const actualSessionName = sessionName || 'Meeting';
+      const backend = resolveBackendCommand(['record', '7200', actualSessionName, '--note-type', noteType]);
 
-      currentRecordingProcess = spawn(getBackendPath(), ['record', '7200', actualSessionName, '--note-type', noteType], {
-        cwd: getBackendCwd(),
+      currentRecordingProcess = spawn(backend.command, backend.args, {
+        cwd: backend.cwd,
         env: {
           ...process.env,
           // Warm the local model during active recording so stop->note generation is faster.
@@ -975,12 +1006,12 @@ function registerOpenScribeIpcHandlers(mainWindow) {
 
   ipcMain.handle('setup-whisper', async () => {
     try {
-      const backendPath = getBackendPath();
+      const backend = resolveBackendCommand(['download-whisper-model']);
       sendDebugLog(mainWindow, 'Downloading Whisper transcription model (~500MB)...');
-      sendDebugLog(mainWindow, `$ ${backendPath} download-whisper-model`);
+      sendDebugLog(mainWindow, `$ ${backend.command} ${backend.args.join(' ')}`);
 
       return new Promise((resolve) => {
-        const process = spawn(backendPath, ['download-whisper-model'], { stdio: 'pipe' });
+        const process = spawn(backend.command, backend.args, { cwd: backend.cwd, stdio: 'pipe' });
 
         process.stdout.on('data', (data) => {
           const text = data.toString().trim();
@@ -1202,10 +1233,11 @@ function registerOpenScribeIpcHandlers(mainWindow) {
     try {
       sendDebugLog(mainWindow, `Pulling model: ${modelName}`);
       sendDebugLog(mainWindow, 'This may take several minutes...');
+      const backend = resolveBackendCommand(['pull-model', modelName]);
 
       return new Promise((resolve) => {
-        const proc = spawn(getBackendPath(), ['pull-model', modelName], {
-          cwd: getBackendCwd(),
+        const proc = spawn(backend.command, backend.args, {
+          cwd: backend.cwd,
         });
 
         proc.stdout.on('data', (data) => {
