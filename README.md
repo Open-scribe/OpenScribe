@@ -73,7 +73,7 @@ Use the local backend and models as the default path:
 If you want hosted inference as a fallback, configure API keys:
 
 ```bash
-pnpm setup  # Auto-generates .env.local with secure storage key
+pnpm run setup  # Auto-generates .env.local with secure storage key
 ```
 
 Edit `apps/web/.env.local` and add your API keys:

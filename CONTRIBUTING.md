@@ -43,7 +43,7 @@ High-priority contribution areas:
    ```
 4. Set up environment:
    ```bash
-   pnpm setup
+   pnpm run setup
    # Then edit apps/web/.env.local with your API keys
    ```
 5. Start the dev server:
