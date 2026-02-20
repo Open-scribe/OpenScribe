@@ -25,7 +25,7 @@ Open-source AI medical scribe for recording encounters and generating structured
 
 ## Project Overview
 
-OpenScribe is a free MIT license open source AI Medical Scribe that helps clinicians record patient encounters, transcribe audio, and generate structured draft clinical notes using LLMs. The default web deployment path is mixed mode: local Whisper transcription + Anthropic Claude note generation. A fully local desktop path is also available.
+OpenScribe is a free MIT license open source AI Medical Scribe that helps clinicians record patient encounters, transcribe audio, and generate structured draft clinical notes using LLMs. The default web deployment path is mixed mode: local Whisper transcription + Anthropic Claude note generation. A fully local desktop path is also available forked from [StenoAI](https://github.com/ruzin/stenoai).
 
 - [Demo](https://www.loom.com/share/1ccd4eec00eb4ddab700d32734f33c28)
 - [Architecture](./architecture.md)
