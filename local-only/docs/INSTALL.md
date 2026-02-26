@@ -9,7 +9,7 @@ This keeps the main OpenScribe setup intact and adds a **fully local** option.
 
 ## 1) Python env
 ```bash
-cd /Users/sammargolis/OpenScribe
+cd /path/to/repo
 python3.11 -m venv .venv-med
 . .venv-med/bin/activate
 pip install --upgrade pip
@@ -26,12 +26,12 @@ You must accept the MedASR + MedGemma license terms on Hugging Face.
 
 ```bash
 . .venv-med/bin/activate
-huggingface-cli login
+hf auth login
 ```
 
 Then run once with `--allow-download` to fetch models locally:
 ```bash
-python /Users/sammargolis/OpenScribe/scripts/local_medscribe.py \
+python ./scripts/local_medscribe.py \
   --audio /path/to/audio.wav \
   --allow-download
 ```
@@ -41,26 +41,29 @@ This step is required for local LLM inference:
 
 ```bash
 . .venv-med/bin/activate
-python /opt/homebrew/Cellar/llama.cpp/*/libexec/convert_hf_to_gguf.py \
+mkdir ./models
+SCRIPT_PATH=$(ls $(brew --cellar)/llama.cpp/*/libexec/convert_hf_to_gguf.py | head -n 1)
+python "$SCRIPT_PATH" \
   ~/.cache/huggingface/hub/models--google--medgemma-1.5-4b-it/snapshots/* \
-  --outfile /Users/sammargolis/OpenScribe/models/medgemma-1.5-4b-it-f16.gguf \
+  --outfile ./models/medgemma-1.5-4b-it-f16.gguf \
   --outtype f16
 
-/opt/homebrew/Cellar/llama.cpp/*/libexec/llama-quantize \
-  /Users/sammargolis/OpenScribe/models/medgemma-1.5-4b-it-f16.gguf \
-  /Users/sammargolis/OpenScribe/models/medgemma-1.5-4b-it-q4_k_m.gguf \
+SCRIPT_PATH=$(ls $(brew --cellar)/llama.cpp/*/libexec/llama-quantize | head -n 1)
+$SCRIPT_PATH \
+  ./models/medgemma-1.5-4b-it-f16.gguf \
+  ./models/medgemma-1.5-4b-it-q4_k_m.gguf \
   Q4_K_M
 ```
 
 ## 5) Run local-only pipeline
 ```bash
-/Users/sammargolis/OpenScribe/local-only/scripts/run-local-medscribe.sh \
-  /path/to/audio.wav
+python ./scripts/local_medscribe.py \
+  --audio /path/to/audio.wav
 ```
 
 Outputs:
-- `/Users/sammargolis/OpenScribe/build/medgemma-artifacts.json`
-- `/Users/sammargolis/OpenScribe/build/medgemma-note.txt`
+- `./build/medgemma-artifacts.json`
+- `./build/medgemma-note.txt`
 
 ## Notes
 - This path does **not** alter the default hosted setup.
