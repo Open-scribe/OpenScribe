@@ -88,7 +88,7 @@ pnpm dev:local    # One command: Whisper local server + web app
 Optional desktop app path:
 
 ```bash
-pnpm dev:desktop
+pnpm electron:dev
 ```
 
 ---
@@ -102,13 +102,13 @@ OpenScribe supports three workflows. **Mixed web mode is the default path.**
 - Notes: larger model (default Claude in web path)
 - Start everything with one command: `pnpm dev:local`
 - Configure with `TRANSCRIPTION_PROVIDER=whisper_local` in `apps/web/.env.local`
-- Setup guide: `docs/WHISPER-LOCAL-SETUP.md`
+- [Setup guide](./docs/WHISPER-LOCAL-SETUP.md)
 
 ### Local-only Desktop (optional)
 - Transcription: local Whisper backend in `local-only/openscribe-backend`
 - Notes: local Ollama models (`llama3.2:*`, `gemma3:4b`)
 - No cloud inference in this path
-- Setup guide: `/Users/sammargolis/OpenScribe/local-only/README.md`
+- [Setup guide](./local-only/README.md)
 
 ### Cloud/OpenAI + Claude (fallback)
 - Transcription: OpenAI Whisper API
@@ -200,22 +200,22 @@ See [architecture.md](./architecture.md) for complete details.
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────┐
-│              Processing Pipeline                         │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌─────┐  │
-│  │  Audio   │──►│Transcribe│──►│   LLM    │──►│Note │  │
-│  │  Ingest  │   │ (Whisper)│   │          │   │Core │  │
-│  └──────────┘   └──────────┘   └──────────┘   └─────┘  │
+│              Processing Pipeline                        │
+│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌─────┐   │
+│  │  Audio   │──►│Transcribe│──►│   LLM    │──►│Note │   │
+│  │  Ingest  │   │ (Whisper)│   │          │   │Core │   │
+│  └──────────┘   └──────────┘   └──────────┘   └─────┘   │
 │       │                                           │     │
 │       └───────────────┐         ┌─────────────────┘     │
 └───────────────────────┼─────────┼───────────────────────┘
                         ▼         ▼
 ┌─────────────────────────────────────────────────────────┐
-│                  Storage Layer                           │
+│                  Storage Layer                          │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │  Encrypted LocalStorage (AES-GCM)                │   │
 │  │  - Encounters (patient data, transcripts, notes) │   │
 │  │  - Metadata (timestamps, status)                 │   │
-│  │  - Audio (in-memory only, not persisted)        │   │
+│  │  - Audio (in-memory only, not persisted)         │   │
 │  └──────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```

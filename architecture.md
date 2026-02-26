@@ -112,7 +112,8 @@ To add a custom template:
    ```
 
 No JSON schemas or TypeScript interfaces required—just edit the markdown structure.
-See [MIGRATION_MARKDOWN.md](MIGRATION_MARKDOWN.md) for complete migration details.
+<!-- See [MIGRATION_MARKDOWN.md](MIGRATION_MARKDOWN.md) for complete migration details. -->
+
 ### `packages/ui`
 
 Reusable React components, hooks, and UI utilities consumed by the apps.
@@ -313,7 +314,7 @@ This directory should be safe to delete at any time and is git-ignored.
 - **Development**: HTTP on localhost is acceptable (PHI stays local)
 - **Production web**: Always serve via HTTPS or block non-localhost access
 
-For complete security implementation details, see [ENCRYPTION-GUIDE.md](ENCRYPTION-GUIDE.md) and [HIPAA-SECURITY-GAPS.md](HIPAA-SECURITY-GAPS.md).
+<!-- For complete security implementation details, see [ENCRYPTION-GUIDE.md](ENCRYPTION-GUIDE.md) and [HIPAA-SECURITY-GAPS.md](HIPAA-SECURITY-GAPS.md). -->
 
 ---
 

@@ -2,14 +2,6 @@
 
 OpenScribe mixed web mode supports fast local transcription with Whisper and separate larger-model note generation.
 
-## 0. Install local backend dependencies (one-time)
-
-```bash
-cd local-only/openscribe-backend
-.venv-backend/bin/python -m pip install -r requirements.txt
-cd /Users/sammargolis/OpenScribe
-```
-
 ## 1. Configure environment
 
 Edit `apps/web/.env.local`:

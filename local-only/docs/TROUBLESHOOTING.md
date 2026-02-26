@@ -14,9 +14,9 @@ pip install --upgrade git+https://github.com/huggingface/transformers.git
 
 ## No output from llama-completion
 - Ensure the GGUF exists:
-  `/Users/sammargolis/OpenScribe/models/medgemma-1.5-4b-it-q4_k_m.gguf`
+  `./models/medgemma-1.5-4b-it-q4_k_m.gguf`
 - Ensure the prompt file exists:
-  `/Users/sammargolis/OpenScribe/build/medgemma-prompt.txt`
+  `./build/medgemma-prompt.txt`
 
 ## Transcript quality is noisy
 - CTC models can output duplicated syllables.

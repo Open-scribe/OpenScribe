@@ -218,6 +218,6 @@ To contribute a new template:
 
 ## Further Reading
 
-- [MIGRATION_MARKDOWN.md](../../../../../MIGRATION_MARKDOWN.md) - Full migration documentation
-- [architecture.md](../../../../../architecture.md) - System architecture overview
-- [packages/pipeline/note-core/](../../../../pipeline/note-core/) - Note parsing and generation code
+<!-- - [MIGRATION_MARKDOWN.md](../../../../../MIGRATION_MARKDOWN.md) - Full migration documentation -->
+- [architecture.md](../../../../../../architecture.md) - System architecture overview
+<!-- - [packages/pipeline/note-core/](../../../../pipeline/note-core/) - Note parsing and generation code -->
