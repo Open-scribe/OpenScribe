@@ -14,6 +14,7 @@ export interface UploadError {
 
 export interface SegmentUploadControllerOptions {
   onError?: (error: UploadError) => void
+  apiBaseUrl?: string
 }
 
 export interface SegmentUploadControllerDeps {
@@ -46,6 +47,7 @@ export class SegmentUploadController {
   private readonly fetchFn: typeof fetch
   private readonly waitFn: (ms: number) => Promise<void>
   private readonly options?: SegmentUploadControllerOptions
+  private readonly apiBaseUrl?: string
 
   constructor(
     sessionId: string | null,
@@ -54,6 +56,7 @@ export class SegmentUploadController {
   ) {
     this.sessionId = sessionId
     this.options = options
+    this.apiBaseUrl = options?.apiBaseUrl
     this.fetchFn = deps?.fetchFn ?? globalThis.fetch.bind(globalThis)
     if (!this.fetchFn) {
       throw new Error("fetch API is required for SegmentUploadController")
@@ -139,7 +142,10 @@ export class SegmentUploadController {
     formData.append("file", segment.blob, `segment-${segment.seqNo}.wav`)
 
     try {
-      const response = await this.fetchFn("/api/transcription/segment", {
+      const url = this.apiBaseUrl
+        ? `${this.apiBaseUrl.replace(/\/+$/, "")}/api/transcription/segment`
+        : "/api/transcription/segment"
+      const response = await this.fetchFn(url, {
         method: "POST",
         body: formData,
       })

@@ -12,6 +12,10 @@
     "dev": "next dev apps/web --webpack -p 3001",
     "dev:desktop": "concurrently -k \"pnpm dev\" \"pnpm electron:dev\"",
     "electron:dev": "wait-on tcp:3001 && cross-env NODE_ENV=development ELECTRON_START_URL=http://localhost:3001 electron packages/shell/main.js",
+    "medasr:server": ". .venv-med/bin/activate && python scripts/medasr_server.py --port 8001",
+    "whisper:server": "local-only/openscribe-backend/.venv-backend/bin/python scripts/whisper_server.py --port 8002 --model tiny.en --backend cpp --gpu",
+    "dev:local": "bash scripts/dev-local.sh",
+    "dev:local:medasr": "concurrently -k \"pnpm medasr:server\" \"pnpm dev\"",
     "lint": "pnpm lint:structure && eslint --config config/eslint.config.mjs .",
     "lint:structure": "node config/scripts/check-structure.mjs",
     "start": "next start apps/web",
@@ -23,7 +27,11 @@
     "test:api": "pnpm build:test && node --test build/tests-dist/pipeline/eval/src/tests/api-simple.test.js",
     "test:llm": "pnpm build:test && node --test build/tests-dist/llm/src/__tests__/*.test.js",
     "test:note": "pnpm build:test && node --test build/tests-dist/pipeline/note-core/src/__tests__/*.test.js",
-    "build:desktop": "pnpm build && node packages/shell/scripts/prepare-next.js && electron-builder --mac"
+    "build:desktop": "pnpm build && pnpm build:backend && node packages/shell/scripts/prepare-next.js && electron-builder --mac",
+    "build:backend": "bash local-only/openscribe-backend/scripts/build-backend.sh",
+    "download:ollama": "bash local-only/openscribe-backend/scripts/download-ollama.sh",
+    "medgemma:scribe": "node scripts/medgemma-scribe.mjs",
+    "medscribe:local": ". .venv-med/bin/activate && python scripts/local_medscribe.py"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
@@ -65,7 +73,7 @@
     "get-port": "5.1.1",
     "input-otp": "1.4.1",
     "lucide-react": "^0.454.0",
-    "next": "16.0.3",
+    "next": "16.1.5",
     "next-themes": "^0.4.6",
     "react": "19.2.0",
     "react-day-picker": "9.8.0",
@@ -73,6 +81,7 @@
     "react-hook-form": "^7.60.0",
     "react-resizable-panels": "^2.1.7",
     "recharts": "2.15.4",
+    "posthog-node": "^4.18.0",
     "sonner": "^1.7.4",
     "swr": "latest",
     "tailwind-merge": "^2.5.5",
@@ -137,6 +146,10 @@
       {
         "from": "apps/web/.next/standalone",
         "to": "next"
+      },
+      {
+        "from": "local-only/openscribe-backend/dist/openscribe-backend",
+        "to": "openscribe-backend"
       }
     ],
     "extraMetadata": {

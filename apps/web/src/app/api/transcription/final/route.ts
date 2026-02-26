@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server"
-import { parseWavHeader, transcribeWavBuffer } from "@transcription"
+import { parseWavHeader, resolveTranscriptionProvider, transcribeWithResolvedProvider } from "@transcription"
 import { transcriptionSessionStore } from "@transcript-assembly"
-import { getOpenAIApiKey } from "@storage/server-api-keys"
 import { writeAuditEntry } from "@storage/audit-log"
+
+export const runtime = "nodejs"
 
 function jsonError(status: number, code: string, message: string) {
   return new Response(JSON.stringify({ error: { code, message } }), {
@@ -36,8 +37,14 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      const apiKey = getOpenAIApiKey()
-      const transcript = await transcribeWavBuffer(Buffer.from(arrayBuffer), `${sessionId}-final.wav`, apiKey)
+      const resolvedProvider = resolveTranscriptionProvider()
+      const startedAtMs = Date.now()
+      const transcript = await transcribeWithResolvedProvider(
+        Buffer.from(arrayBuffer),
+        `${sessionId}-final.wav`,
+        resolvedProvider,
+      )
+      const latencyMs = Date.now() - startedAtMs
       transcriptionSessionStore.setFinalTranscript(sessionId, transcript)
 
       // Audit log: final transcription completed
@@ -48,6 +55,9 @@ export async function POST(req: NextRequest) {
         metadata: {
           duration_ms: wavInfo.durationMs,
           file_size_bytes: arrayBuffer.byteLength,
+          transcription_provider: resolvedProvider.provider,
+          transcription_model: resolvedProvider.model,
+          transcription_latency_ms: latencyMs,
         },
       })
 
@@ -56,6 +66,7 @@ export async function POST(req: NextRequest) {
       })
     } catch (error) {
       console.error("Final transcription failed", error)
+      const resolvedProvider = resolveTranscriptionProvider()
       transcriptionSessionStore.emitError(
         sessionId,
         "api_error",
@@ -68,6 +79,10 @@ export async function POST(req: NextRequest) {
         resource_id: sessionId,
         success: false,
         error_message: error instanceof Error ? error.message : "Transcription API failed",
+        metadata: {
+          transcription_provider: resolvedProvider.provider,
+          transcription_model: resolvedProvider.model,
+        },
       })
 
       return jsonError(502, "api_error", "Transcription API failed")

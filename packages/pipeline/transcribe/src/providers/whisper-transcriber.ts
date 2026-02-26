@@ -1,4 +1,5 @@
-const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions"
+const DEFAULT_WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions"
+const DEFAULT_WHISPER_MODEL = "whisper-1"
 
 /**
  * HIPAA Compliance: Validate that external endpoints use HTTPS to ensure PHI is encrypted in transit.
@@ -22,8 +23,11 @@ function validateHttpsUrl(url: string, serviceName: string): void {
 }
 
 export async function transcribeWavBuffer(buffer: Buffer, filename: string, apiKey?: string): Promise<string> {
+  const whisperUrl = process.env.WHISPER_OPENAI_URL || DEFAULT_WHISPER_URL
+  const whisperModel = process.env.WHISPER_OPENAI_MODEL || DEFAULT_WHISPER_MODEL
+
   // Validate HTTPS before sending any PHI
-  validateHttpsUrl(WHISPER_URL, "Whisper API")
+  validateHttpsUrl(whisperUrl, "Whisper API")
   
   const key = apiKey || process.env.OPENAI_API_KEY
   if (!key) {
@@ -32,9 +36,9 @@ export async function transcribeWavBuffer(buffer: Buffer, filename: string, apiK
   const formData = new FormData()
   const blob = new Blob([new Uint8Array(buffer)], { type: "audio/wav" })
   formData.append("file", blob, filename)
-  formData.append("model", "whisper-1")
+  formData.append("model", whisperModel)
 
-  const response = await fetch(WHISPER_URL, {
+  const response = await fetch(whisperUrl, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${key}`,

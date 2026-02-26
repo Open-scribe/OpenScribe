@@ -9,25 +9,22 @@
 /**
  * Default clinical note template
  */
-const DEFAULT_TEMPLATE = `# Clinical Note
+const DEFAULT_TEMPLATE = `# History and Physical
 
 ## Chief Complaint
-{{chief_complaint}}
+{{chief_complaint_in_patient_words}}
 
 ## History of Present Illness
-{{hpi}}
+{{hpi_narrative}}
 
 ## Review of Systems
-{{ros}}
+{{ros_bullet_points}}
 
-## Physical Exam
-{{physical_exam}}
+## Past Medical History
+{{pmh}}
 
-## Assessment
-{{assessment}}
-
-## Plan
-{{plan}}
+## Medications
+{{medications_bullet_points}}
 `;
 
 /**
@@ -101,4 +98,3 @@ export function getTemplate(name?: string): string {
   console.warn(`Template "${name}" not found, using default`);
   return DEFAULT_TEMPLATE;
 }
-

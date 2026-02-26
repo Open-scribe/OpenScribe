@@ -1,0 +1,10 @@
+sounddevice>=0.4.6
+numpy>=1.24.0,<2.0
+pywhispercpp>=1.2.0
+ollama>=0.1.7
+click>=8.1.0
+pydantic>=2.5.0
+python-dateutil>=2.8.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.9

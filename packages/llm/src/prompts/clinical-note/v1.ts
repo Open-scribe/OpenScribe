@@ -53,27 +53,35 @@ You must return your response as a markdown document following this exact templa
 ${noteTemplate}
 
 TEMPLATE INSTRUCTIONS:
-- Maintain all headings exactly as shown (including ## heading levels)
 - Replace placeholder content with actual clinical information from the transcript
-- If a section has no relevant information, leave it empty (just the heading with no content below)
+- For the History and Physical template, include a section only if it is explicitly supported by transcript/contextual notes/clinical note content
+- For the History and Physical template, omit unsupported sections completely (do not render the heading)
+- For the SOAP template, maintain all headings exactly as shown
 - Do NOT use placeholders like "Not discussed", "Not documented", or "None noted"
 - Use standard markdown formatting (lists, bold, etc.) where appropriate
 - Do NOT wrap output in code fences
 
 CLINICAL SECTIONS:
-1. Chief Complaint: Patient's primary concern in their own words
-2. History of Present Illness: Chronological narrative with onset, location, duration, characteristics, aggravating/relieving factors
-3. Review of Systems: Systematic review organized by body system (only if discussed)
-4. Physical Exam: Objective findings from examination (only if documented)
-5. Assessment: Clinical reasoning, differential diagnosis, impressions
-6. Plan: Diagnostic workup, treatments, medications, follow-up, patient education
+1. Chief Complaint: Patient's primary concern/reason for visit in their own words (History and Physical template only)
+2. History of Present Illness: Detailed symptom narrative in paragraph format (History and Physical template only)
+3. Review of Systems: Body-system findings in bullet points (History and Physical template only)
+4. Past Medical History: Relevant conditions/surgeries/hospitalizations (History and Physical template only)
+5. Medications: Current medications with dosages in bullet points (History and Physical template only)
+6. SOAP sections: Follow SOAP structure exactly when SOAP template is selected
 
 IMPORTANT CONSTRAINTS:
 - Do NOT infer information not stated in the transcript
 - Do NOT use patient name or visit reason to generate content
 - Do NOT add assumptions or standard medical practices unless mentioned
-- If the transcript is empty or lacks clinical content, return the template with empty sections
+- If the transcript is empty or lacks clinical content, return only the title with no fabricated sections/content
 - This is a DRAFT requiring clinician review and approval
+
+HISTORY AND PHYSICAL SECTION RULES:
+- Chief Complaint: [patient's primary concern or reason for visit in their own words] (Only include if explicitly mentioned in transcript, contextual notes or clinical note, otherwise omit completely.)
+- History of Present Illness: [detailed narrative of current symptoms including onset, duration, quality, severity, associated symptoms, aggravating and alleviating factors] (Only include if explicitly mentioned in transcript, contextual notes or clinical note, otherwise omit completely. Write in paragraph format.)
+- Review of Systems: [systematic review of body systems with positive and pertinent negative findings] (Only include if explicitly mentioned in transcript, contextual notes or clinical note, otherwise omit completely. Write as bullet points.)
+- Past Medical History: [relevant previous medical conditions, surgeries, hospitalizations] (Only include if explicitly mentioned in transcript, contextual notes or clinical note, otherwise omit completely.)
+- Medications: [current medications with dosages] (Only include if explicitly mentioned in transcript, contextual notes or clinical note, otherwise omit completely. List as bullet points.)
 
 Return only the markdown note following the template structure, with no additional text or code fences.`
 }

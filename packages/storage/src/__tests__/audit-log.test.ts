@@ -273,7 +273,7 @@ test("Audit Log Tests", async (t) => {
     // Manually inject old entry
     const currentLogs = await getAuditEntries()
     const allLogs = [...currentLogs, oldEntry]
-    await import("../secure-storage").then((m) =>
+    await import("../secure-storage.js").then((m) =>
       m.saveSecureItem("openscribe_audit_logs", allLogs)
     )
 

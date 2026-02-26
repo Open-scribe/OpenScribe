@@ -43,17 +43,20 @@ function decryptDataSync(payload: string): string {
       throw new Error("Encryption key not available")
     }
     
-    const iv = Buffer.from(parts[2], "base64")
-    const authTag = Buffer.from(parts[3], "base64")
-    const encrypted = Buffer.from(parts[4], "base64")
+    const iv = new Uint8Array(Buffer.from(parts[2], "base64"))
+    const authTag = new Uint8Array(Buffer.from(parts[3], "base64"))
+    const encrypted = new Uint8Array(Buffer.from(parts[4], "base64"))
     
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv)
+    const decipher = crypto.createDecipheriv(ALGORITHM, new Uint8Array(key), iv)
     decipher.setAuthTag(authTag)
     
-    let decrypted = decipher.update(encrypted)
-    decrypted = Buffer.concat([decrypted, decipher.final()])
-    
-    return decrypted.toString("utf8")
+    const firstChunk = decipher.update(encrypted)
+    const secondChunk = decipher.final()
+    const decrypted = new Uint8Array(firstChunk.length + secondChunk.length)
+    decrypted.set(firstChunk, 0)
+    decrypted.set(secondChunk, firstChunk.length)
+
+    return new TextDecoder().decode(decrypted)
   }
   
   // Legacy unencrypted JSON format

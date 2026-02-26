@@ -1,0 +1,7 @@
+# MedASR Server Dependencies
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.9
+torch>=2.0.0
+transformers>=4.44.0
+huggingface-hub>=0.24.0

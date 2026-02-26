@@ -2,12 +2,22 @@
 
 import { useState, useCallback, useRef, useEffect } from "react"
 import type { Encounter } from "@storage/types"
-import { useEncounters, EncounterList, IdleView, NewEncounterForm, RecordingView, ProcessingView, ErrorBoundary, PermissionsDialog, SettingsDialog, SettingsBar, useHttpsWarning } from "@ui"
+import { useEncounters, EncounterList, IdleView, NewEncounterForm, RecordingView, ProcessingView, ErrorBoundary, PermissionsDialog, SettingsDialog, SettingsBar, ModelIndicator, useHttpsWarning } from "@ui"
 import { NoteEditor } from "@note-rendering"
 import { useAudioRecorder, type RecordedSegment, warmupMicrophonePermission, warmupSystemAudioPermission } from "@audio"
 import { useSegmentUpload, type UploadError } from "@transcription";
 import { generateClinicalNote } from "@/app/actions"
-import { getPreferences, setPreferences, type NoteLength, debugLog, debugLogPHI, debugError, debugWarn, initializeAuditLog } from "@storage"
+import {
+  getPreferences,
+  setPreferences,
+  type NoteLength,
+  type ProcessingMode,
+  debugLog,
+  debugLogPHI,
+  debugError,
+  debugWarn,
+  initializeAuditLog,
+} from "@storage"
 
 type ViewState =
   | { type: "idle" }
@@ -17,9 +27,60 @@ type ViewState =
   | { type: "viewing"; encounterId: string }
 
 type StepStatus = "pending" | "in-progress" | "done" | "failed"
+type ProcessingMetrics = {
+  processingStartedAt?: number
+  processingEndedAt?: number
+  transcriptionStartedAt?: number
+  transcriptionEndedAt?: number
+  noteGenerationStartedAt?: number
+  noteGenerationEndedAt?: number
+}
 
 const SEGMENT_DURATION_MS = 10000
 const OVERLAP_MS = 250
+
+type BackendProcessingEvent = {
+  success?: boolean
+  sessionName?: string
+  message?: string
+  error?: string
+  meetingData?: {
+    session_info?: {
+      name?: string
+      summary_file?: string
+      transcript_file?: string
+      duration_seconds?: number
+      duration_minutes?: number
+      note_type?: string
+    }
+    summary?: string
+    participants?: string[]
+    key_points?: string[]
+    action_items?: string[]
+    clinical_note?: string
+    transcript?: string
+  }
+}
+
+function templateForVisitReason(visitReason?: string): "default" | "soap" {
+  if (!visitReason) return "default"
+  const normalized = visitReason.toLowerCase()
+  if (normalized === "problem_visit" || normalized === "soap") return "soap"
+  return "default"
+}
+
+function resolveApiBaseUrl(): string {
+  if (typeof window === "undefined") return ""
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim()
+  if (configured) {
+    return configured.replace(/\/+$/, "")
+  }
+  const origin = window.location?.origin
+  if (origin && origin !== "null") {
+    return origin
+  }
+  return "http://localhost:3001"
+}
 
 function HomePageContent() {
   const { encounters, addEncounter, updateEncounter, deleteEncounter: removeEncounter, refresh } = useEncounters()
@@ -30,6 +91,7 @@ function HomePageContent() {
   const [view, setView] = useState<ViewState>({ type: "idle" })
   const [transcriptionStatus, setTranscriptionStatus] = useState<StepStatus>("pending")
   const [noteGenerationStatus, setNoteGenerationStatus] = useState<StepStatus>("pending")
+  const [processingMetrics, setProcessingMetrics] = useState<ProcessingMetrics>({})
   const [sessionId, setSessionId] = useState<string | null>(null)
 
   const currentEncounterIdRef = useRef<string | null>(null)
@@ -37,20 +99,45 @@ function HomePageContent() {
   const eventSourceRef = useRef<EventSource | null>(null)
   const finalTranscriptRef = useRef<string>("")
   const finalRecordingRef = useRef<Blob | null>(null)
+  const apiBaseUrlRef = useRef<string>(resolveApiBaseUrl())
+  const lastMeetingDataRef = useRef<BackendProcessingEvent["meetingData"] | null>(null)
 
   const [showPermissionsDialog, setShowPermissionsDialog] = useState(false)
   const permissionCheckInProgressRef = useRef(false)
 
   const [showSettingsDialog, setShowSettingsDialog] = useState(false)
   const [noteLength, setNoteLengthState] = useState<NoteLength>("long")
+  const [processingMode, setProcessingModeState] = useState<ProcessingMode>("mixed")
+  const [localBackendAvailable, setLocalBackendAvailable] = useState(false)
+  const [localDurationMs, setLocalDurationMs] = useState(0)
+  const [localPaused, setLocalPaused] = useState(false)
+  const localSessionNameRef = useRef<string | null>(null)
+  const localBackendRef = useRef<Window["desktop"]["openscribeBackend"] | null>(null)
+  const localLastTickRef = useRef<number | null>(null)
 
   useEffect(() => {
     const prefs = getPreferences()
     setNoteLengthState(prefs.noteLength)
+    setProcessingModeState(prefs.processingMode)
 
     // Initialize audit logging system (cleanup old entries, setup periodic cleanup)
     void initializeAuditLog()
   }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const backend = window.desktop?.openscribeBackend
+    localBackendRef.current = backend ?? null
+    setLocalBackendAvailable(!!backend)
+  }, [])
+
+  useEffect(() => {
+    if (processingMode !== "local") return
+    if (localBackendAvailable) return
+    debugWarn("Local-only mode selected but desktop backend is unavailable; falling back to mixed mode")
+    setProcessingModeState("mixed")
+    void setPreferences({ processingMode: "mixed" })
+  }, [localBackendAvailable, processingMode])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -116,12 +203,20 @@ function HomePageContent() {
     setPreferences({ noteLength: length })
   }
 
+  const handleProcessingModeChange = (mode: ProcessingMode) => {
+    setProcessingModeState(mode)
+    setPreferences({ processingMode: mode })
+  }
+
+  const useLocalBackend = processingMode === "local" && localBackendAvailable
+
   const handleUploadError = useCallback((error: UploadError) => {
     debugError("Segment upload failed:", error.code, "-", error.message);
   }, []);
 
   const { enqueueSegment, resetQueue } = useSegmentUpload(sessionId, {
     onError: handleUploadError,
+    apiBaseUrl: apiBaseUrlRef.current || undefined,
   })
 
   const cleanupSession = useCallback(() => {
@@ -134,6 +229,58 @@ function HomePageContent() {
     setSessionId(null)
     resetQueue()
   }, [resetQueue])
+
+  const buildNoteFromMeeting = useCallback((meeting: BackendProcessingEvent["meetingData"], visitReason?: string) => {
+    if (!meeting) return ""
+    if (meeting.clinical_note && meeting.clinical_note.trim()) return meeting.clinical_note
+
+    const summary = meeting.summary || ""
+    const keyPoints = meeting.key_points || []
+    const actionItems = meeting.action_items || []
+    const templateName = templateForVisitReason(visitReason || meeting.session_info?.note_type)
+
+    if (templateName === "soap") {
+      return [
+        "# SOAP Note",
+        "",
+        "## Subjective",
+        "### Chief Complaint",
+        "",
+        "### History of Present Illness",
+        summary || "",
+        "",
+        "### Review of Systems",
+        "",
+        "## Objective",
+        "### Physical Examination",
+        "",
+        "## Assessment",
+        keyPoints.length ? keyPoints.map((p) => `- ${p}`).join("\n") : "",
+        "",
+        "## Plan",
+        actionItems.length ? actionItems.map((p) => `- ${p}`).join("\n") : "",
+      ].join("\n")
+    }
+
+    return [
+      "# Clinical Note",
+      "",
+      "## Chief Complaint",
+      "",
+      "## History of Present Illness",
+      summary || "",
+      "",
+      "## Review of Systems",
+      "",
+      "## Physical Exam",
+      "",
+      "## Assessment",
+      keyPoints.length ? keyPoints.map((p) => `- ${p}`).join("\n") : "",
+      "",
+      "## Plan",
+      actionItems.length ? actionItems.map((p) => `- ${p}`).join("\n") : "",
+    ].join("\n")
+  }, [])
 
   const handleSegmentReady = useCallback(
     (segment: RecordedSegment) => {
@@ -213,6 +360,7 @@ function HomePageContent() {
       const enc = encountersRef.current.find((e: Encounter) => e.id === encounterId)
       const patientName = enc?.patient_name || ""
       const visitReason = enc?.visit_reason || ""
+      const template = templateForVisitReason(visitReason)
 
       debugLog("\n" + "=".repeat(80))
       debugLog("GENERATING CLINICAL NOTE")
@@ -225,12 +373,18 @@ function HomePageContent() {
       debugLog("=".repeat(80) + "\n")
 
       setNoteGenerationStatus("in-progress")
+      setProcessingMetrics((prev) => ({
+        ...prev,
+        transcriptionEndedAt: prev.transcriptionEndedAt ?? Date.now(),
+        noteGenerationStartedAt: prev.noteGenerationStartedAt ?? Date.now(),
+      }))
       try {
         const note = await generateClinicalNote({
           transcript,
           patient_name: patientName,
           visit_reason: visitReason,
           noteLength: noteLengthRef.current,
+          template,
         })
         await updateEncounterRef.current(encounterId, {
           note_text: note,
@@ -238,6 +392,11 @@ function HomePageContent() {
         })
         await refreshRef.current()
         setNoteGenerationStatus("done")
+        setProcessingMetrics((prev) => ({
+          ...prev,
+          noteGenerationEndedAt: Date.now(),
+          processingEndedAt: Date.now(),
+        }))
         debugLog("✅ Clinical note saved to encounter")
         debugLog("\n" + "=".repeat(80))
         debugLog("ENCOUNTER PROCESSING COMPLETE")
@@ -246,6 +405,11 @@ function HomePageContent() {
       } catch (err) {
         debugError("❌ Note generation failed:", err)
         setNoteGenerationStatus("failed")
+        setProcessingMetrics((prev) => ({
+          ...prev,
+          noteGenerationEndedAt: Date.now(),
+          processingEndedAt: Date.now(),
+        }))
         await updateEncounterRef.current(encounterId, { status: "note_generation_failed" })
         await refreshRef.current()
       }
@@ -261,6 +425,10 @@ function HomePageContent() {
         if (!transcript) return
         finalTranscriptRef.current = transcript
         setTranscriptionStatus("done")
+        setProcessingMetrics((prev) => ({
+          ...prev,
+          transcriptionEndedAt: prev.transcriptionEndedAt ?? Date.now(),
+        }))
         const encounterId = currentEncounterIdRef.current
         if (encounterId) {
           void (async () => {
@@ -278,15 +446,25 @@ function HomePageContent() {
   )
 
   const handleStreamError = useCallback((event: MessageEvent | Event) => {
-    debugError("Transcription stream error", event)
+    const readyState = eventSourceRef.current?.readyState
+    debugError("Transcription stream error", { event, readyState, apiBaseUrl: apiBaseUrlRef.current })
     setTranscriptionStatus("failed")
+    setProcessingMetrics((prev) => ({
+      ...prev,
+      transcriptionEndedAt: prev.transcriptionEndedAt ?? Date.now(),
+      processingEndedAt: Date.now(),
+    }))
   }, [])
 
   useEffect(() => {
-    if (!sessionId) return
+    if (!sessionId || useLocalBackend) return
     
     debugLog('[EventSource] Connecting to session:', sessionId)
-    const source = new EventSource(`/api/transcription/stream/${sessionId}`)
+    const baseUrl = apiBaseUrlRef.current
+    const streamUrl = baseUrl
+      ? `${baseUrl.replace(/\/+$/, "")}/api/transcription/stream/${sessionId}`
+      : `/api/transcription/stream/${sessionId}`
+    const source = new EventSource(streamUrl)
     eventSourceRef.current = source
 
     const segmentListener = (event: Event) => handleSegmentEvent(event as MessageEvent)
@@ -307,7 +485,7 @@ function HomePageContent() {
         eventSourceRef.current = null
       }
     }
-  }, [handleFinalEvent, handleSegmentEvent, handleStreamError, sessionId])
+  }, [handleFinalEvent, handleSegmentEvent, handleStreamError, sessionId, useLocalBackend])
   
   // Cleanup EventSource on page unload/refresh
   useEffect(() => {
@@ -359,14 +537,19 @@ function HomePageContent() {
     visit_reason: string
   }) => {
     try {
-      cleanupSession()
+      if (!useLocalBackend) {
+        cleanupSession()
+      }
       finalTranscriptRef.current = ""
       finalRecordingRef.current = null
       setTranscriptionStatus("pending")
       setNoteGenerationStatus("pending")
+      setProcessingMetrics({})
 
       const session = crypto.randomUUID()
-      startNewSession(session)
+      if (!useLocalBackend) {
+        startNewSession(session)
+      }
 
       const encounter = await addEncounter({
         ...data,
@@ -376,12 +559,30 @@ function HomePageContent() {
       })
 
       currentEncounterIdRef.current = encounter.id
-      await startRecording()
+      // Optimistically flip to recording immediately for responsive UI.
       setView({ type: "recording", encounterId: encounter.id })
       setTranscriptionStatus("in-progress")
+      if (!useLocalBackend && localBackendRef.current) {
+        const whisperReady = await localBackendRef.current.invoke("ensure-whisper-service")
+        if (!(whisperReady as { success?: boolean }).success) {
+          throw new Error((whisperReady as { error?: string }).error || "Whisper service unavailable")
+        }
+      }
+
+      if (useLocalBackend && localBackendRef.current) {
+        const sessionName = `OpenScribe ${encounter.id}`
+        localSessionNameRef.current = sessionName
+        setLocalDurationMs(0)
+        setLocalPaused(false)
+        localLastTickRef.current = Date.now()
+        await localBackendRef.current.invoke("start-recording-ui", sessionName, data.visit_reason)
+      } else {
+        await startRecording()
+      }
     } catch (err) {
       debugError("Failed to start recording:", err)
       setTranscriptionStatus("failed")
+      setView({ type: "idle" })
     }
   }
 
@@ -390,7 +591,11 @@ function HomePageContent() {
       const formData = new FormData()
       formData.append("session_id", activeSessionId)
       formData.append("file", blob, `${activeSessionId}-full.wav`)
-      const response = await fetch("/api/transcription/final", {
+      const baseUrl = apiBaseUrlRef.current
+      const url = baseUrl
+        ? `${baseUrl.replace(/\/+$/, "")}/api/transcription/final`
+        : "/api/transcription/final"
+      const response = await fetch(url, {
         method: "POST",
         body: formData,
       })
@@ -426,6 +631,28 @@ function HomePageContent() {
     const encounter = currentEncounter
     if (!encounter) return
 
+    await updateEncounter(encounter.id, {
+      status: "processing",
+      recording_duration: duration,
+    })
+
+    setView({ type: "processing", encounterId: encounter.id })
+    setProcessingMetrics({
+      processingStartedAt: Date.now(),
+      transcriptionStartedAt: Date.now(),
+    })
+
+    if (useLocalBackend && localBackendRef.current) {
+      // Local backend processes in sequence (transcription -> note generation).
+      // Keep note generation pending until backend emits stage updates.
+      setTranscriptionStatus("in-progress")
+      setNoteGenerationStatus("pending")
+      await localBackendRef.current.invoke("stop-recording-ui")
+      localLastTickRef.current = null
+      setLocalPaused(false)
+      return
+    }
+
     const audioBlob = await stopRecording()
     if (!audioBlob) {
       setTranscriptionStatus("failed")
@@ -433,13 +660,6 @@ function HomePageContent() {
     }
 
     finalRecordingRef.current = audioBlob
-
-    await updateEncounter(encounter.id, {
-      status: "processing",
-      recording_duration: duration,
-    })
-
-    setView({ type: "processing", encounterId: encounter.id })
 
     const activeSessionId = sessionIdRef.current
     if (activeSessionId) {
@@ -450,7 +670,85 @@ function HomePageContent() {
     }
   }
 
+  const handlePauseRecording = async () => {
+    if (useLocalBackend && localBackendRef.current) {
+      await localBackendRef.current.invoke("pause-recording-ui")
+      setLocalPaused(true)
+      return
+    }
+    await pauseRecording()
+  }
+
+  const handleResumeRecording = async () => {
+    if (useLocalBackend && localBackendRef.current) {
+      await localBackendRef.current.invoke("resume-recording-ui")
+      setLocalPaused(false)
+      localLastTickRef.current = Date.now()
+      return
+    }
+    await resumeRecording()
+  }
+
   const handleRetryTranscription = async () => {
+    if (useLocalBackend && localBackendRef.current) {
+      const meeting = lastMeetingDataRef.current
+      const summaryFile = meeting?.session_info?.summary_file as string | undefined
+      if (!summaryFile) {
+        setTranscriptionStatus("failed")
+        return
+      }
+      setTranscriptionStatus("in-progress")
+      setNoteGenerationStatus("pending")
+      setProcessingMetrics({
+        processingStartedAt: Date.now(),
+        transcriptionStartedAt: Date.now(),
+      })
+      try {
+        await localBackendRef.current.invoke("reprocess-meeting", summaryFile)
+        const result = await localBackendRef.current.invoke("list-meetings")
+        const parsed = result as { success?: boolean; meetings?: BackendProcessingEvent["meetingData"][] }
+        const refreshed = parsed?.meetings?.find((m) => m?.session_info?.summary_file === summaryFile)
+        if (refreshed && currentEncounterIdRef.current) {
+          lastMeetingDataRef.current = refreshed
+          const transcript = refreshed.transcript || ""
+          const encounter = encountersRef.current.find((e: Encounter) => e.id === currentEncounterIdRef.current)
+          const noteText = buildNoteFromMeeting(refreshed, encounter?.visit_reason)
+          await updateEncounterRef.current(currentEncounterIdRef.current, {
+            status: "completed",
+            transcript_text: transcript,
+            note_text: noteText,
+          })
+          setTranscriptionStatus("done")
+          setNoteGenerationStatus("done")
+          setProcessingMetrics((prev) => ({
+            ...prev,
+            transcriptionEndedAt: prev.transcriptionEndedAt ?? Date.now(),
+            noteGenerationStartedAt: prev.noteGenerationStartedAt ?? Date.now(),
+            noteGenerationEndedAt: Date.now(),
+            processingEndedAt: Date.now(),
+          }))
+          setView({ type: "viewing", encounterId: currentEncounterIdRef.current })
+        } else {
+          setTranscriptionStatus("failed")
+          setNoteGenerationStatus("failed")
+          setProcessingMetrics((prev) => ({
+            ...prev,
+            transcriptionEndedAt: prev.transcriptionEndedAt ?? Date.now(),
+            processingEndedAt: Date.now(),
+          }))
+        }
+      } catch (error) {
+        setTranscriptionStatus("failed")
+        setNoteGenerationStatus("failed")
+        setProcessingMetrics((prev) => ({
+          ...prev,
+          transcriptionEndedAt: prev.transcriptionEndedAt ?? Date.now(),
+          processingEndedAt: Date.now(),
+        }))
+      }
+      return
+    }
+
     const blob = finalRecordingRef.current
     const activeSessionId = sessionIdRef.current
     if (!blob || !activeSessionId) return
@@ -463,11 +761,144 @@ function HomePageContent() {
   }
 
   const handleRetryNoteGeneration = async () => {
+    if (useLocalBackend) {
+      return
+    }
     const transcript = finalTranscriptRef.current
     const encounterId = currentEncounter?.id
     if (!encounterId || !transcript) return
+    setProcessingMetrics((prev) => ({
+      ...prev,
+      noteGenerationStartedAt: Date.now(),
+      noteGenerationEndedAt: undefined,
+      processingEndedAt: undefined,
+    }))
     await processEncounterForNoteGeneration(encounterId, transcript)
   }
+
+  useEffect(() => {
+    if (!useLocalBackend || !localBackendRef.current) return
+
+    const backend = localBackendRef.current
+    const stageHandler = (_event: unknown, payload: unknown) => {
+      const data = payload as {
+        stage?: string
+        status?: StepStatus
+        startedAtMs?: number
+        endedAtMs?: number
+        durationMs?: number
+      }
+      const stageTs = data?.startedAtMs || Date.now()
+      if (data?.stage === "transcription" && data.status === "in-progress") {
+        setTranscriptionStatus("in-progress")
+        setNoteGenerationStatus("pending")
+        setProcessingMetrics((prev) => ({
+          ...prev,
+          processingStartedAt: prev.processingStartedAt ?? stageTs,
+          transcriptionStartedAt: prev.transcriptionStartedAt ?? stageTs,
+        }))
+        return
+      }
+      if (data?.stage === "transcription" && data.status === "done") {
+        const endedAt = data.endedAtMs || Date.now()
+        const duration = typeof data.durationMs === "number" ? data.durationMs : undefined
+        setTranscriptionStatus("done")
+        setProcessingMetrics((prev) => ({
+          ...prev,
+          processingStartedAt: prev.processingStartedAt ?? (duration ? endedAt - duration : endedAt),
+          transcriptionStartedAt: prev.transcriptionStartedAt ?? (duration ? endedAt - duration : endedAt),
+          transcriptionEndedAt: endedAt,
+        }))
+        return
+      }
+      if (data?.stage === "note_generation" && data.status === "in-progress") {
+        setTranscriptionStatus("done")
+        setNoteGenerationStatus("in-progress")
+        setProcessingMetrics((prev) => ({
+          ...prev,
+          transcriptionEndedAt: prev.transcriptionEndedAt ?? stageTs,
+          noteGenerationStartedAt: prev.noteGenerationStartedAt ?? stageTs,
+        }))
+        return
+      }
+      if (data?.stage === "note_generation" && data.status === "done") {
+        const endedAt = data.endedAtMs || Date.now()
+        const duration = typeof data.durationMs === "number" ? data.durationMs : undefined
+        setNoteGenerationStatus("done")
+        setProcessingMetrics((prev) => ({
+          ...prev,
+          noteGenerationStartedAt: prev.noteGenerationStartedAt ?? (duration ? endedAt - duration : endedAt),
+          noteGenerationEndedAt: endedAt,
+        }))
+      }
+    }
+
+    const handler = async (_event: unknown, payload: unknown) => {
+      const data = payload as BackendProcessingEvent
+      const encounterId = currentEncounterIdRef.current
+      if (!encounterId) return
+
+      if (!data.success) {
+        setTranscriptionStatus("failed")
+        setNoteGenerationStatus("failed")
+        setProcessingMetrics((prev) => ({
+          ...prev,
+          transcriptionEndedAt: prev.transcriptionEndedAt ?? Date.now(),
+          processingEndedAt: Date.now(),
+        }))
+        await updateEncounterRef.current(encounterId, { status: "transcription_failed" })
+        return
+      }
+
+      const meeting = data.meetingData
+      lastMeetingDataRef.current = meeting ?? null
+      const transcript = meeting?.transcript || ""
+      const encounter = encountersRef.current.find((e: Encounter) => e.id === encounterId)
+      const noteText = buildNoteFromMeeting(meeting, encounter?.visit_reason)
+      const durationSeconds = meeting?.session_info?.duration_seconds
+
+      finalTranscriptRef.current = transcript
+
+      await updateEncounterRef.current(encounterId, {
+        status: "completed",
+        transcript_text: transcript,
+        note_text: noteText,
+        recording_duration: durationSeconds ? Math.round(durationSeconds / 1000) : duration,
+      })
+
+      setTranscriptionStatus("done")
+      setNoteGenerationStatus("done")
+      setProcessingMetrics((prev) => ({
+        ...prev,
+        transcriptionEndedAt: prev.transcriptionEndedAt ?? Date.now(),
+        noteGenerationStartedAt: prev.noteGenerationStartedAt ?? Date.now(),
+        noteGenerationEndedAt: Date.now(),
+        processingEndedAt: Date.now(),
+      }))
+      setView({ type: "viewing", encounterId })
+    }
+
+    backend.on("processing-stage", stageHandler)
+    backend.on("processing-complete", handler)
+    return () => {
+      backend.removeAllListeners("processing-stage")
+      backend.removeAllListeners("processing-complete")
+    }
+  }, [buildNoteFromMeeting, duration, useLocalBackend])
+
+  useEffect(() => {
+    if (!useLocalBackend || view.type !== "recording") return
+    const tick = () => {
+      const now = Date.now()
+      if (localLastTickRef.current && !localPaused) {
+        setLocalDurationMs((prev) => prev + (now - localLastTickRef.current!))
+      }
+      localLastTickRef.current = now
+    }
+    tick()
+    const interval = window.setInterval(tick, 250)
+    return () => window.clearInterval(interval)
+  }, [useLocalBackend, localPaused, view.type])
 
   const currentEncounter = encounters.find((e: Encounter) => "encounterId" in view && e.id === view.encounterId)
   const selectedEncounter = view.type === "viewing" ? encounters.find((e: Encounter) => e.id === view.encounterId) : null
@@ -514,11 +945,11 @@ function HomePageContent() {
             <RecordingView
               patientName={currentEncounter?.patient_name || ""}
               patientId={currentEncounter?.patient_id || ""}
-              duration={duration}
-              isPaused={isPaused}
+              duration={useLocalBackend ? Math.floor(localDurationMs / 1000) : duration}
+              isPaused={useLocalBackend ? localPaused : isPaused}
               onStop={handleStopRecording}
-              onPause={pauseRecording}
-              onResume={resumeRecording}
+              onPause={handlePauseRecording}
+              onResume={handleResumeRecording}
             />
           </div>
         )
@@ -553,6 +984,9 @@ function HomePageContent() {
         onClose={handleCloseSettings}
         noteLength={noteLength}
         onNoteLengthChange={handleNoteLengthChange}
+        processingMode={processingMode}
+        onProcessingModeChange={handleProcessingModeChange}
+        localBackendAvailable={localBackendAvailable}
       />
       {httpsWarning && (
         <div className="fixed top-0 left-0 right-0 z-50 bg-destructive px-4 py-2 text-center text-sm font-semibold text-destructive-foreground">
@@ -569,6 +1003,7 @@ function HomePageContent() {
             onDeleteEncounter={handleDeleteEncounter}
             disabled={view.type === "recording"}
           />
+          <ModelIndicator processingMode={processingMode} />
           <SettingsBar onOpenSettings={handleOpenSettings} />
         </div>
         <main className="flex flex-1 flex-col overflow-hidden bg-background">

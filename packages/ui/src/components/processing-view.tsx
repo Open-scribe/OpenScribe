@@ -30,11 +30,7 @@ export function ProcessingView({
 
       <div className="w-full max-w-xs space-y-3">
         <ProcessingStep label="Transcribing audio" status={transcriptionStatus} onRetry={onRetryTranscription} />
-        <ProcessingStep
-          label="Generating clinical note"
-          status={noteGenerationStatus}
-          onRetry={onRetryNoteGeneration}
-        />
+        <ProcessingStep label="Generating clinical note" status={noteGenerationStatus} onRetry={onRetryNoteGeneration} />
       </div>
     </div>
   )

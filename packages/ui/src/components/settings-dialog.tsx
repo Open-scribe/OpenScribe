@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { X } from "lucide-react"
 import { Button } from "@ui/lib/ui/button"
 import { Label } from "@ui/lib/ui/label"
-import type { NoteLength } from "@storage/preferences"
+import type { NoteLength, ProcessingMode } from "@storage/preferences"
 import { getAuditRetentionDays, setAuditRetentionDays, purgeAllAuditLogs } from "@storage/audit-log"
 import { AuditLogViewer } from "./audit-log-viewer"
 
@@ -13,9 +13,20 @@ interface SettingsDialogProps {
   onClose: () => void
   noteLength: NoteLength
   onNoteLengthChange: (length: NoteLength) => void
+  processingMode: ProcessingMode
+  onProcessingModeChange: (mode: ProcessingMode) => void
+  localBackendAvailable: boolean
 }
 
-export function SettingsDialog({ isOpen, onClose, noteLength, onNoteLengthChange }: SettingsDialogProps) {
+export function SettingsDialog({
+  isOpen,
+  onClose,
+  noteLength,
+  onNoteLengthChange,
+  processingMode,
+  onProcessingModeChange,
+  localBackendAvailable,
+}: SettingsDialogProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState("")
   const [retentionDays, setRetentionDays] = useState(90)
@@ -118,6 +129,51 @@ export function SettingsDialog({ isOpen, onClose, noteLength, onNoteLengthChange
                 </div>
               </button>
             </div>
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-border" />
+
+          {/* Processing Mode */}
+          <div className="space-y-3">
+            <Label className="text-base font-medium text-foreground">Processing Mode</Label>
+            <p className="text-sm text-muted-foreground">
+              Choose the default desktop pipeline for transcription and note generation.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => onProcessingModeChange("mixed")}
+                className={`flex-1 rounded-lg border-2 p-4 text-left transition-all ${
+                  processingMode === "mixed"
+                    ? "border-foreground bg-accent"
+                    : "border-border hover:border-muted-foreground"
+                }`}
+              >
+                <div className="font-medium text-foreground">Mixed (Default)</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Local Whisper transcription + Claude note generation
+                </div>
+              </button>
+              <button
+                onClick={() => onProcessingModeChange("local")}
+                disabled={!localBackendAvailable}
+                className={`flex-1 rounded-lg border-2 p-4 text-left transition-all ${
+                  processingMode === "local"
+                    ? "border-foreground bg-accent"
+                    : "border-border hover:border-muted-foreground"
+                } ${!localBackendAvailable ? "cursor-not-allowed opacity-50" : ""}`}
+              >
+                <div className="font-medium text-foreground">Local-only</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Local Whisper + local Ollama note generation
+                </div>
+              </button>
+            </div>
+            {!localBackendAvailable && (
+              <p className="text-xs text-muted-foreground">
+                Local-only mode requires the desktop backend runtime to be available.
+              </p>
+            )}
           </div>
 
           {/* Divider */}

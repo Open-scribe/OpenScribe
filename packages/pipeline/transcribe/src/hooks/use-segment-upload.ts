@@ -20,6 +20,7 @@ export function useSegmentUpload(sessionId: string | null, options?: UseSegmentU
   if (!controllerRef.current) {
     controllerRef.current = new SegmentUploadController(sessionId, {
       onError: (error) => onErrorRef.current?.(error),
+      apiBaseUrl: options?.apiBaseUrl,
     })
   } else {
     // Update sessionId synchronously to avoid race condition with first segment
