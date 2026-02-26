@@ -70,7 +70,15 @@ test("parseWavHeader returns accurate metadata", () => {
 
 test("parseWavHeader rejects short buffers", () => {
   const tiny = new ArrayBuffer(10)
-  assert.throws(() => parseWavHeader(tiny), /WAV buffer too small/)
+  try {
+    parseWavHeader(tiny)
+    assert.fail("Expected parseWavHeader to throw")
+  } catch (error) {
+    assert.equal(typeof error, "object")
+    assert.equal((error as { code?: string }).code, "validation_error")
+    assert.equal((error as { message?: string }).message, "WAV buffer too small")
+    assert.equal((error as { recoverable?: boolean }).recoverable, true)
+  }
 })
 
 test("SegmentUploadController enforces concurrency limits", async () => {

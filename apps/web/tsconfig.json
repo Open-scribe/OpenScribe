@@ -20,6 +20,8 @@
       "@llm-medgemma/*": ["packages/llm-medgemma/src/*"],
       "@medgemma-scribe": ["packages/pipeline/medgemma-scribe/src/index.ts"],
       "@medgemma-scribe/*": ["packages/pipeline/medgemma-scribe/src/*"],
+      "@pipeline-errors": ["packages/pipeline/shared/src/index.ts"],
+      "@pipeline-errors/*": ["packages/pipeline/shared/src/*"],
       "@storage": ["packages/storage/src/index.ts"],
       "@storage/*": ["packages/storage/src/*"],
       "@ui": ["packages/ui/src/index.ts"],

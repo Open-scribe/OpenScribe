@@ -1,12 +1,13 @@
 import type { NextRequest } from "next/server"
+import { toPipelineError } from "@pipeline-errors"
 import { parseWavHeader, resolveTranscriptionProvider, transcribeWithResolvedProvider } from "@transcription"
 import { transcriptionSessionStore } from "@transcript-assembly"
 import { writeAuditEntry } from "@storage/audit-log"
 
 export const runtime = "nodejs"
 
-function jsonError(status: number, code: string, message: string) {
-  return new Response(JSON.stringify({ error: { code, message } }), {
+function jsonError(status: number, code: string, message: string, recoverable: boolean) {
+  return new Response(JSON.stringify({ error: { code, message, recoverable } }), {
     status,
     headers: { "Content-Type": "application/json" },
   })
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
       Number.isNaN(overlapMs) ||
       !(file instanceof Blob)
     ) {
-      return jsonError(400, "validation_error", "Missing required metadata or file")
+      return jsonError(400, "validation_error", "Missing required metadata or file", false)
     }
 
     const arrayBuffer = await file.arrayBuffer()
@@ -40,15 +41,15 @@ export async function POST(req: NextRequest) {
     try {
       wavInfo = parseWavHeader(arrayBuffer)
     } catch (error) {
-      return jsonError(400, "validation_error", error instanceof Error ? error.message : "Invalid WAV file")
+      return jsonError(400, "validation_error", error instanceof Error ? error.message : "Invalid WAV file", true)
     }
 
     if (wavInfo.sampleRate !== 16000 || wavInfo.numChannels !== 1 || wavInfo.bitDepth !== 16) {
-      return jsonError(400, "validation_error", "Segments must be 16kHz mono 16-bit PCM WAV")
+      return jsonError(400, "validation_error", "Segments must be 16kHz mono 16-bit PCM WAV", true)
     }
 
     if (wavInfo.durationMs < 8000 || wavInfo.durationMs > 12000) {
-      return jsonError(400, "validation_error", "Segment duration must be between 8s and 12s")
+      return jsonError(400, "validation_error", "Segment duration must be between 8s and 12s", true)
     }
 
     try {
@@ -85,11 +86,12 @@ export async function POST(req: NextRequest) {
     } catch (error) {
       console.error("Segment transcription failed", error)
       const resolvedProvider = resolveTranscriptionProvider()
-      transcriptionSessionStore.emitError(
-        sessionId,
-        "api_error",
-        error instanceof Error ? error.message : "Transcription API failure",
-      )
+      const pipelineError = toPipelineError(error, {
+        code: "api_error",
+        message: "Transcription API failure",
+        recoverable: true,
+      })
+      transcriptionSessionStore.emitError(sessionId, pipelineError)
 
       // Audit log: segment transcription failed
       await writeAuditEntry({
@@ -104,10 +106,10 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      return jsonError(502, "api_error", "Transcription API failed")
+      return jsonError(502, pipelineError.code, pipelineError.message, pipelineError.recoverable)
     }
   } catch (error) {
     console.error("Segment ingestion failed", error)
-    return jsonError(500, "storage_error", "Failed to process audio segment")
+    return jsonError(500, "storage_error", "Failed to process audio segment", false)
   }
 }

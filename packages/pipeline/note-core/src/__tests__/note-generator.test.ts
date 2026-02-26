@@ -162,26 +162,20 @@ test("createClinicalNoteText handles short note length", async () => {
 })
 
 test("createClinicalNoteText handles API errors gracefully", async () => {
-  // Skip if no API key
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.log("⚠️  Skipping live API test - ANTHROPIC_API_KEY not set")
-    return
-  }
-
-  // Temporarily break the API key to trigger an error
   const originalKey = process.env.ANTHROPIC_API_KEY
-  process.env.ANTHROPIC_API_KEY = "invalid-key-12345"
+  process.env.ANTHROPIC_API_KEY = ""
 
   try {
-    const result = await createClinicalNoteText({
+    await createClinicalNoteText({
       transcript: "Test transcript",
       patient_name: "Test",
       visit_reason: "test",
     })
-    
-    // Should return empty note on error
-    const emptyNote = createEmptyMarkdownNote()
-    assert.equal(result.trim(), emptyNote.trim(), "Should return empty note on API error")
+    assert.fail("Expected note generation to throw")
+  } catch (error) {
+    assert.equal((error as { code?: string }).code, "note_generation_error")
+    assert.equal(typeof (error as { message?: string }).message, "string")
+    assert.equal((error as { recoverable?: boolean }).recoverable, true)
   } finally {
     process.env.ANTHROPIC_API_KEY = originalKey
   }

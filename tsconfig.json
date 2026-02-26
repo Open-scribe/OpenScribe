@@ -75,6 +75,12 @@
       "@medgemma-scribe/*": [
         "packages/pipeline/medgemma-scribe/src/*"
       ],
+      "@pipeline-errors": [
+        "packages/pipeline/shared/src/index.ts"
+      ],
+      "@pipeline-errors/*": [
+        "packages/pipeline/shared/src/*"
+      ],
       "@storage": [
         "packages/storage/src/index.ts"
       ],
