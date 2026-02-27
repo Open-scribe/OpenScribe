@@ -90,6 +90,40 @@ Optional desktop app path:
 pnpm electron:dev
 ```
 
+## Quick Start (Docker)
+
+SAM is the easiest way to run OpenScribe for new contributors: one command starts the web app and local Whisper transcription service.
+
+### 1. Create SAM env file
+
+```bash
+pnpm run setup
+```
+
+Edit `apps/web/.env.local` and set:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
+```
+
+### 2. Start SAM
+
+```bash
+docker compose -f docker-compose.sam.yml up --build
+```
+
+### 3. Open the app
+
+```bash
+http://localhost:3001
+```
+
+### 4. Verify Whisper health (optional)
+
+```bash
+curl http://127.0.0.1:8002/health
+```
+
 ---
 
 ## Runtime Modes

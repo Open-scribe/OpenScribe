@@ -6,7 +6,7 @@ import path from "node:path"
 
 const root = path.resolve(process.cwd())
 
-const allowedRootDirs = new Set(["apps", "packages", "config", "build", "node_modules"])
+const allowedRootDirs = new Set(["apps", "packages", "config", "build", "docker", "node_modules"])
 const allowedRootFiles = new Set([
   "package.json",
   "pnpm-lock.yaml",
@@ -19,6 +19,8 @@ const allowedRootFiles = new Set([
   "QUICK_START.md",
   "STABILITY_FIXES.md",
   "TEST_SESSION.md",
+  ".dockerignore",
+  "docker-compose.sam.yml",
 ])
 const buildArtifacts = new Set([".next", ".tests-dist", "dist"])
 const configPattern = /\.config\.(?:js|cjs|mjs|ts)$/
