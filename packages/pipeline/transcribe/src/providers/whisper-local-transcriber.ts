@@ -24,10 +24,15 @@ function validateLocalOrHttpsUrl(url: string, serviceName: string): void {
   try {
     const parsed = new URL(url)
     const isLocalhost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1"
+    const trustedHosts = (process.env.WHISPER_LOCAL_TRUSTED_HOSTS || "")
+      .split(",")
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean)
+    const isTrustedHost = trustedHosts.includes(parsed.hostname.toLowerCase())
 
-    if (!isLocalhost && parsed.protocol !== "https:") {
+    if (!isLocalhost && !isTrustedHost && parsed.protocol !== "https:") {
       throw new Error(
-        `SECURITY ERROR: ${serviceName} endpoint must use HTTPS or localhost. ` +
+        `SECURITY ERROR: ${serviceName} endpoint must use HTTPS, localhost, or a host listed in WHISPER_LOCAL_TRUSTED_HOSTS. ` +
           `Received: ${parsed.protocol}//${parsed.host}`,
       )
     }

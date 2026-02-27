@@ -1,0 +1,40 @@
+services:
+  sam-whisper:
+    build:
+      context: .
+      dockerfile: docker/whisper.Dockerfile
+    container_name: sam-whisper
+    env_file:
+      - apps/web/.env.local
+    ports:
+      - "8002:8002"
+    volumes:
+      - sam-whisper-cache:/root/.cache
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  sam-web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    container_name: sam-web
+    depends_on:
+      sam-whisper:
+        condition: service_healthy
+    env_file:
+      - apps/web/.env.local
+    environment:
+      NODE_ENV: development
+      TRANSCRIPTION_PROVIDER: whisper_local
+      WHISPER_LOCAL_URL: http://sam-whisper:8002/v1/audio/transcriptions
+      WHISPER_LOCAL_TRUSTED_HOSTS: sam-whisper
+    ports:
+      - "3001:3001"
+    command: ["pnpm", "exec", "next", "dev", "apps/web", "--webpack", "-p", "3001", "-H", "0.0.0.0"]
+
+volumes:
+  sam-whisper-cache:
