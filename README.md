@@ -32,8 +32,7 @@ OpenScribe is a free MIT license open source AI Medical Scribe that helps clinic
 - [Contributing](./CONTRIBUTING.md)
 
 
-This software is currently in early development (v0.x) and is NOT suitable for clinical practice yet. It is intended for evaluation, testing, and development purposes only. 
-- HIPAA Compliant version is currently in the works.  Join the Discord for more information when the version is launched.
+The current project is not yet HIPPA compliant; however, we recently signed up with Delve and will be HIPPA compliant in the next few weeks.
 
 ## Demo
 
