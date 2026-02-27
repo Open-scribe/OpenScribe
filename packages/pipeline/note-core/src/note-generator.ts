@@ -1,10 +1,11 @@
-import { runLLMRequest, prompts } from "@llm"
+import { runLLMRequest, prompts } from "../../../llm/src/index"
+import { toPipelineStageError } from "../../shared/src/error"
 import { 
   extractMarkdownFromResponse, 
   normalizeMarkdownSections,
   createEmptyMarkdownNote 
 } from "./clinical-models/markdown-note"
-import { debugLog, debugLogPHI, debugError, debugWarn } from "@storage"
+import { debugLog, debugLogPHI, debugError, debugWarn } from "../../../storage/src/index"
 
 export type NoteLength = "short" | "long"
 
@@ -84,14 +85,14 @@ export async function createClinicalNoteText(params: ClinicalNoteRequest): Promi
     return normalizedMarkdown
   } catch (error) {
     debugError("❌ Failed to generate clinical note:", error)
-    debugWarn("⚠️  Returning empty note due to error")
-    const emptyNote = createEmptyMarkdownNote()
-    debugLog("=".repeat(80))
-    debugLog("FINAL CLINICAL NOTE (ERROR FALLBACK):")
-    debugLog("-".repeat(80))
-    debugLogPHI(emptyNote)
-    debugLog("-".repeat(80))
-    debugLog("=".repeat(80))
-    return emptyNote
+    debugWarn("⚠️  Propagating note generation error")
+    throw toPipelineStageError(error, {
+      code: "note_generation_error",
+      message: "Failed to generate clinical note",
+      recoverable: true,
+      details: {
+        template: template || "default",
+      },
+    })
   }
 }

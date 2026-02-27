@@ -1,3 +1,5 @@
+import { toPipelineError, type PipelineError } from "../../shared/src/error"
+
 type TranscriptionStatus = "recording" | "finalizing" | "completed" | "error"
 
 export interface SegmentMetadata {
@@ -200,15 +202,22 @@ class TranscriptionSessionStore {
     })
   }
 
-  emitError(sessionId: string, code: string, message: string) {
+  emitError(sessionId: string, error: PipelineError | Error | unknown) {
     const session = this.getSession(sessionId)
     session.status = "error"
+    const normalizedError = toPipelineError(error, {
+      code: "assembly_error",
+      message: "Failed to assemble transcript",
+      recoverable: true,
+    })
     this.emit(session, {
       event: "error",
       data: {
         session_id: sessionId,
-        code,
-        message,
+        code: normalizedError.code,
+        message: normalizedError.message,
+        recoverable: normalizedError.recoverable,
+        details: normalizedError.details ?? null,
       },
     })
   }

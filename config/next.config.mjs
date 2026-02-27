@@ -86,6 +86,7 @@ const nextConfig = {
       '@llm': path.resolve(__dirname, '../packages/llm/src'),
       '@llm-medgemma': path.resolve(__dirname, '../packages/llm-medgemma/src'),
       '@medgemma-scribe': path.resolve(__dirname, '../packages/pipeline/medgemma-scribe/src'),
+      '@pipeline-errors': path.resolve(__dirname, '../packages/pipeline/shared/src'),
       '@storage': path.resolve(__dirname, '../packages/storage/src'),
       '@ui': path.resolve(__dirname, '../packages/ui/src'),
       '@ui/lib': path.resolve(__dirname, '../packages/ui/src/lib'),

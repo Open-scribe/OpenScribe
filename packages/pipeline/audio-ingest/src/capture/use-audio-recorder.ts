@@ -1,7 +1,9 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import { PipelineStageError, type PipelineError } from "../../../shared/src/error"
 import { requestSystemAudioStream } from "../devices/system-audio"
+import { toAudioIngestError } from "../errors"
 import {
   DEFAULT_OVERLAP_MS,
   DEFAULT_SEGMENT_MS,
@@ -37,8 +39,8 @@ interface UseAudioRecorderReturn {
   stopRecording: () => Promise<Blob | null>
   pauseRecording: () => void
   resumeRecording: () => void
-  error: string | null
-  errorCode: "capture_error" | "processing_error" | null
+  error: PipelineError | null
+  errorCode: string | null
 }
 
 export function useAudioRecorder(options: UseAudioRecorderOptions = {}): UseAudioRecorderReturn {
@@ -46,8 +48,8 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}): UseAudi
   const [isRecording, setIsRecording] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
   const [duration, setDuration] = useState(0)
-  const [error, setError] = useState<string | null>(null)
-  const [errorCode, setErrorCode] = useState<"capture_error" | "processing_error" | null>(null)
+  const [error, setError] = useState<PipelineError | null>(null)
+  const [errorCode, setErrorCode] = useState<string | null>(null)
 
   const micStreamRef = useRef<MediaStream | null>(null)
   const systemStreamRef = useRef<MediaStream | null>(null)
@@ -219,11 +221,16 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}): UseAudi
       setIsPaused(false)
       startTimer()
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to start capture"
-      setError(message)
-      setErrorCode("capture_error")
+      const pipelineError = toAudioIngestError(err, "capture_error")
+      setError(pipelineError)
+      setErrorCode(pipelineError.code)
       await cleanupAudio()
-      throw err
+      throw new PipelineStageError(
+        pipelineError.code,
+        pipelineError.message,
+        pipelineError.recoverable,
+        pipelineError.details,
+      )
     }
   }, [cleanupAudio, setupProcessor, startTimer])
 
@@ -250,8 +257,9 @@ export function useAudioRecorder(options: UseAudioRecorderOptions = {}): UseAudi
       return createWavBlob(merged, TARGET_SAMPLE_RATE)
     } catch (err) {
       console.error("Failed to finalize recording", err)
-      setError("Failed to finalize recording")
-      setErrorCode("processing_error")
+      const pipelineError = toAudioIngestError(err, "processing_error")
+      setError(pipelineError)
+      setErrorCode(pipelineError.code)
       return null
     } finally {
       await cleanupAudio()

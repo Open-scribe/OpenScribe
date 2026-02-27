@@ -8,6 +8,7 @@ import {
   createWavBlob,
   drainSegments,
 } from "../capture/audio-processing.js"
+import { toAudioIngestError } from "../errors.js"
 
 test("StreamingResampler accumulates until enough samples are available", () => {
   const resampler = new StreamingResampler(48000, TARGET_SAMPLE_RATE)
@@ -91,4 +92,11 @@ test("createWavBlob produces a valid PCM header and payload", async () => {
   const secondSample = view.getInt16(46, true)
   assert.equal(firstSample, 0)
   assert.equal(secondSample, 16383)
+})
+
+test("audio-ingest normalizes recorder failures to shared pipeline error shape", () => {
+  const error = toAudioIngestError(new Error("Microphone denied"), "capture_error")
+  assert.equal(error.code, "capture_error")
+  assert.equal(error.message, "Microphone denied")
+  assert.equal(error.recoverable, true)
 })

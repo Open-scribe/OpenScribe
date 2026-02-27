@@ -1,11 +1,13 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from "react"
+import { createPipelineError, toPipelineError, type PipelineError } from "@pipeline-errors"
 import type { Encounter } from "@storage/types"
 import { useEncounters, EncounterList, IdleView, NewEncounterForm, RecordingView, ProcessingView, ErrorBoundary, PermissionsDialog, SettingsDialog, SettingsBar, ModelIndicator, useHttpsWarning } from "@ui"
 import { NoteEditor } from "@note-rendering"
 import { useAudioRecorder, type RecordedSegment, warmupMicrophonePermission, warmupSystemAudioPermission } from "@audio"
 import { useSegmentUpload, type UploadError } from "@transcription";
+import { WorkflowErrorDisplay } from "./workflow-error-display"
 import { generateClinicalNote } from "@/app/actions"
 import {
   getPreferences,
@@ -91,8 +93,9 @@ function HomePageContent() {
   const [view, setView] = useState<ViewState>({ type: "idle" })
   const [transcriptionStatus, setTranscriptionStatus] = useState<StepStatus>("pending")
   const [noteGenerationStatus, setNoteGenerationStatus] = useState<StepStatus>("pending")
-  const [processingMetrics, setProcessingMetrics] = useState<ProcessingMetrics>({})
+  const [, setProcessingMetrics] = useState<ProcessingMetrics>({})
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [workflowError, setWorkflowError] = useState<PipelineError | null>(null)
 
   const currentEncounterIdRef = useRef<string | null>(null)
   const sessionIdRef = useRef<string | null>(null)
@@ -211,6 +214,13 @@ function HomePageContent() {
   const useLocalBackend = processingMode === "local" && localBackendAvailable
 
   const handleUploadError = useCallback((error: UploadError) => {
+    setWorkflowError(error)
+    setTranscriptionStatus("failed")
+    setProcessingMetrics((prev) => ({
+      ...prev,
+      transcriptionEndedAt: prev.transcriptionEndedAt ?? Date.now(),
+      processingEndedAt: Date.now(),
+    }))
     debugError("Segment upload failed:", error.code, "-", error.message);
   }, []);
 
@@ -313,7 +323,8 @@ function HomePageContent() {
 
   useEffect(() => {
     if (recordingError) {
-      debugError("Recording error:", recordingError)
+      setWorkflowError(recordingError)
+      debugError("Recording error:", recordingError.message)
       setTranscriptionStatus("failed")
     }
   }, [recordingError])
@@ -392,6 +403,7 @@ function HomePageContent() {
         })
         await refreshRef.current()
         setNoteGenerationStatus("done")
+        setWorkflowError(null)
         setProcessingMetrics((prev) => ({
           ...prev,
           noteGenerationEndedAt: Date.now(),
@@ -404,6 +416,13 @@ function HomePageContent() {
         setView({ type: "viewing", encounterId })
       } catch (err) {
         debugError("❌ Note generation failed:", err)
+        setWorkflowError(
+          toPipelineError(err, {
+            code: "note_generation_error",
+            message: "Failed to generate clinical note",
+            recoverable: true,
+          }),
+        )
         setNoteGenerationStatus("failed")
         setProcessingMetrics((prev) => ({
           ...prev,
@@ -448,6 +467,11 @@ function HomePageContent() {
   const handleStreamError = useCallback((event: MessageEvent | Event) => {
     const readyState = eventSourceRef.current?.readyState
     debugError("Transcription stream error", { event, readyState, apiBaseUrl: apiBaseUrlRef.current })
+    setWorkflowError(
+      createPipelineError("network_error", "Lost connection to transcription stream", true, {
+        readyState,
+      }),
+    )
     setTranscriptionStatus("failed")
     setProcessingMetrics((prev) => ({
       ...prev,
@@ -562,6 +586,7 @@ function HomePageContent() {
       // Optimistically flip to recording immediately for responsive UI.
       setView({ type: "recording", encounterId: encounter.id })
       setTranscriptionStatus("in-progress")
+      setWorkflowError(null)
       if (!useLocalBackend && localBackendRef.current) {
         const whisperReady = await localBackendRef.current.invoke("ensure-whisper-service")
         if (!(whisperReady as { success?: boolean }).success) {
@@ -581,6 +606,13 @@ function HomePageContent() {
       }
     } catch (err) {
       debugError("Failed to start recording:", err)
+      setWorkflowError(
+        toPipelineError(err, {
+          code: "capture_error",
+          message: "Failed to start recording",
+          recoverable: true,
+        }),
+      )
       setTranscriptionStatus("failed")
       setView({ type: "idle" })
     }
@@ -607,9 +639,12 @@ function HomePageContent() {
         }
         let message = `Final upload failed (${response.status})`
         try {
-          const body = (await response.json()) as { error?: { message?: string } }
+          const body = (await response.json()) as { error?: PipelineError }
           if (body?.error?.message) {
             message = body.error.message
+          }
+          if (body?.error) {
+            setWorkflowError(body.error)
           }
         } catch {
           // ignore
@@ -622,6 +657,13 @@ function HomePageContent() {
         return uploadFinalRecording(activeSessionId, blob, attempt + 1)
       }
       debugError("Failed to upload final recording:", error)
+      setWorkflowError(
+        toPipelineError(error, {
+          code: "api_error",
+          message: "Failed to upload final recording",
+          recoverable: true,
+        }),
+      )
       setTranscriptionStatus("failed")
       throw error
     }
@@ -655,6 +697,9 @@ function HomePageContent() {
 
     const audioBlob = await stopRecording()
     if (!audioBlob) {
+      setWorkflowError(
+        createPipelineError("processing_error", "Failed to finalize recording", true, { stage: "audio-ingest" }),
+      )
       setTranscriptionStatus("failed")
       return
     }
@@ -666,6 +711,7 @@ function HomePageContent() {
       void uploadFinalRecording(activeSessionId, audioBlob)
     } else {
       debugError("Missing session identifier for final upload")
+      setWorkflowError(createPipelineError("capture_error", "Missing session identifier for final upload", true))
       setTranscriptionStatus("failed")
     }
   }
@@ -694,9 +740,11 @@ function HomePageContent() {
       const meeting = lastMeetingDataRef.current
       const summaryFile = meeting?.session_info?.summary_file as string | undefined
       if (!summaryFile) {
+        setWorkflowError(createPipelineError("storage_error", "Unable to find meeting summary for retry", false))
         setTranscriptionStatus("failed")
         return
       }
+      setWorkflowError(null)
       setTranscriptionStatus("in-progress")
       setNoteGenerationStatus("pending")
       setProcessingMetrics({
@@ -738,6 +786,13 @@ function HomePageContent() {
           }))
         }
       } catch (error) {
+        setWorkflowError(
+          toPipelineError(error, {
+            code: "transcription_error",
+            message: "Failed to retry transcription",
+            recoverable: true,
+          }),
+        )
         setTranscriptionStatus("failed")
         setNoteGenerationStatus("failed")
         setProcessingMetrics((prev) => ({
@@ -753,6 +808,7 @@ function HomePageContent() {
     const activeSessionId = sessionIdRef.current
     if (!blob || !activeSessionId) return
     setTranscriptionStatus("in-progress")
+    setWorkflowError(null)
     try {
       await uploadFinalRecording(activeSessionId, blob)
     } catch {
@@ -767,6 +823,7 @@ function HomePageContent() {
     const transcript = finalTranscriptRef.current
     const encounterId = currentEncounter?.id
     if (!encounterId || !transcript) return
+    setWorkflowError(null)
     setProcessingMetrics((prev) => ({
       ...prev,
       noteGenerationStartedAt: Date.now(),
@@ -839,6 +896,11 @@ function HomePageContent() {
       if (!encounterId) return
 
       if (!data.success) {
+        setWorkflowError(
+          createPipelineError("transcription_error", data.error || "Transcription failed", true, {
+            stage: "transcription",
+          }),
+        )
         setTranscriptionStatus("failed")
         setNoteGenerationStatus("failed")
         setProcessingMetrics((prev) => ({
@@ -868,6 +930,7 @@ function HomePageContent() {
 
       setTranscriptionStatus("done")
       setNoteGenerationStatus("done")
+      setWorkflowError(null)
       setProcessingMetrics((prev) => ({
         ...prev,
         transcriptionEndedAt: prev.transcriptionEndedAt ?? Date.now(),
@@ -953,18 +1016,23 @@ function HomePageContent() {
             />
           </div>
         )
-      case "processing":
+      case "processing": {
+        const retryAction = noteGenerationStatus === "failed" ? handleRetryNoteGeneration : handleRetryTranscription
         return (
           <div className="flex h-full items-center justify-center p-8">
-            <ProcessingView
-              patientName={currentEncounter?.patient_name || ""}
-              transcriptionStatus={transcriptionStatus}
-              noteGenerationStatus={noteGenerationStatus}
-              onRetryTranscription={handleRetryTranscription}
-              onRetryNoteGeneration={handleRetryNoteGeneration}
-            />
+            <div className="flex w-full flex-col items-center">
+              {workflowError && <WorkflowErrorDisplay error={workflowError} onRetry={workflowError.recoverable ? retryAction : undefined} />}
+              <ProcessingView
+                patientName={currentEncounter?.patient_name || ""}
+                transcriptionStatus={transcriptionStatus}
+                noteGenerationStatus={noteGenerationStatus}
+                onRetryTranscription={handleRetryTranscription}
+                onRetryNoteGeneration={handleRetryNoteGeneration}
+              />
+            </div>
           </div>
         )
+      }
       case "viewing":
         return selectedEncounter ? (
           <NoteEditor encounter={selectedEncounter} onSave={handleSaveNote} />

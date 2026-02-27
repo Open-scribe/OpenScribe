@@ -1,3 +1,5 @@
+import { PipelineStageError, toPipelineStageError } from "../../../shared/src/error"
+
 const DEFAULT_WHISPER_LOCAL_URL = "http://127.0.0.1:8002/v1/audio/transcriptions"
 const DEFAULT_WHISPER_LOCAL_MODEL = "tiny.en"
 const DEFAULT_TIMEOUT_MS = 15_000
@@ -26,14 +28,16 @@ function validateLocalOrHttpsUrl(url: string, serviceName: string): void {
     const isLocalhost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1"
 
     if (!isLocalhost && parsed.protocol !== "https:") {
-      throw new Error(
+      throw new PipelineStageError(
+        "configuration_error",
         `SECURITY ERROR: ${serviceName} endpoint must use HTTPS or localhost. ` +
           `Received: ${parsed.protocol}//${parsed.host}`,
+        false,
       )
     }
   } catch (error) {
     if (error instanceof TypeError) {
-      throw new Error(`Invalid ${serviceName} URL: ${url}`)
+      throw new PipelineStageError("configuration_error", `Invalid ${serviceName} URL: ${url}`, false)
     }
     throw error
   }
@@ -96,15 +100,23 @@ export async function transcribeWavBuffer(
         }
 
         if (response.status === 503) {
-          throw new Error(
+          throw new PipelineStageError(
+            "service_unavailable",
             "Whisper local server is not ready. Please ensure the server is running:\n" +
               "  pnpm whisper:server\n" +
               "Or start both servers together:\n" +
               "  pnpm dev:local",
+            true,
+            { status: response.status, provider: "whisper_local" },
           )
         }
 
-        throw new Error(`Whisper local transcription failed (${response.status}): ${errorText}`)
+        throw new PipelineStageError(
+          "api_error",
+          `Whisper local transcription failed (${response.status}): ${errorText}`,
+          shouldRetryStatus(response.status),
+          { status: response.status, provider: "whisper_local" },
+        )
       }
 
       const result = (await response.json()) as { text?: string }
@@ -119,22 +131,37 @@ export async function transcribeWavBuffer(
       }
 
       if (isAbort) {
-        throw new Error(`Whisper local transcription timed out after ${timeoutMs}ms (attempt ${attempt}/${totalAttempts}).`)
+        throw new PipelineStageError(
+          "timeout_error",
+          `Whisper local transcription timed out after ${timeoutMs}ms (attempt ${attempt}/${totalAttempts}).`,
+          true,
+          { timeoutMs, attempt, totalAttempts, provider: "whisper_local" },
+        )
       }
 
       if (isNetworkFetch) {
-        throw new Error(
+        throw new PipelineStageError(
+          "network_error",
           `Cannot connect to Whisper local server at ${url}.\n` +
             "Please start the Whisper local server:\n" +
             "  pnpm whisper:server\n" +
             "Or start both servers together:\n" +
             "  pnpm dev:local",
+          true,
+          { provider: "whisper_local", url },
         )
       }
 
-      throw error
+      throw toPipelineStageError(error, {
+        code: "transcription_error",
+        message: "Whisper local transcription failed",
+        recoverable: true,
+        details: { provider: "whisper_local" },
+      })
     }
   }
 
-  throw new Error("Whisper local transcription failed after retries")
+  throw new PipelineStageError("api_error", "Whisper local transcription failed after retries", true, {
+    provider: "whisper_local",
+  })
 }
