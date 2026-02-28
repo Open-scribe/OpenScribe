@@ -155,7 +155,7 @@ def main():
     parser.add_argument(
         "--backend",
         choices=["cpp", "whisper.cpp", "pywhispercpp", "openai", "openai-whisper"],
-        default=os.environ.get("WHISPER_LOCAL_BACKEND", "cpp"),,
+        default=os.environ.get("WHISPER_LOCAL_BACKEND", "cpp"),
         help="Transcriber backend (default: cpp)",
     )
     parser.add_argument("--gpu", action="store_true", help="Enable GPU/Metal for whisper.cpp")
