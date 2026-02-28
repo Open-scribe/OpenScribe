@@ -98,12 +98,15 @@ async def transcribe_audio(
     response_format: Optional[str] = Form("json"),
     temperature: Optional[float] = Form(None),
 ):
-    del language, prompt, temperature
+    del prompt, temperature
     if transcriber is None:
         raise HTTPException(status_code=503, detail="Whisper transcriber not initialized")
 
     if model and model != transcriber.model_size:
         print(f"Request model '{model}' differs from loaded model '{transcriber.model_size}', ignoring request value")
+
+    if language == "auto":
+        language = None
 
     audio_data = await file.read()
     if not audio_data:
@@ -114,8 +117,8 @@ async def transcribe_audio(
         tmp_path = Path(tmp.name)
 
     try:
-        print(f"Transcribing file: {file.filename} ({len(audio_data)} bytes)")
-        transcript = transcriber.transcribe_audio(tmp_path)
+        print(f"Transcribing file: {file.filename} ({len(audio_data)} bytes, language: {language})")
+        transcript = transcriber.transcribe_audio(tmp_path, language)
         if transcript is None:
             raise HTTPException(status_code=500, detail="Transcription failed")
 
@@ -125,7 +128,7 @@ async def transcribe_audio(
         if response_format in {"json", "verbose_json"}:
             payload = {"text": transcript}
             if response_format == "verbose_json":
-                payload["language"] = "en"
+                payload["language"] = language or "auto"
             return JSONResponse(content=payload)
 
         raise HTTPException(status_code=400, detail=f"Unsupported response format: {response_format}")
@@ -148,11 +151,11 @@ def main():
     parser = argparse.ArgumentParser(description="Whisper local transcription server")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind to (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8002, help="Port to bind to (default: 8002)")
-    parser.add_argument("--model", default="tiny.en", help="Whisper model size (default: tiny.en)")
+    parser.add_argument("--model", default=os.environ.get("WHISPER_LOCAL_MODEL", "tiny.en"), help="Whisper model size (default: tiny.en)")
     parser.add_argument(
         "--backend",
         choices=["cpp", "whisper.cpp", "pywhispercpp", "openai", "openai-whisper"],
-        default="cpp",
+        default=os.environ.get("WHISPER_LOCAL_BACKEND", "cpp"),,
         help="Transcriber backend (default: cpp)",
     )
     parser.add_argument("--gpu", action="store_true", help="Enable GPU/Metal for whisper.cpp")
@@ -173,6 +176,9 @@ def main():
     print(f"GPU: {'enabled' if args.gpu else 'disabled'}")
     print(f"Endpoint: http://{args.host}:{args.port}/v1/audio/transcriptions")
     print("=" * 60)
+
+    if not args.model.endswith(".en"):
+        print("🌍 Multilingual Whisper model enabled")
 
     uvicorn.run(
         "whisper_server:app",

@@ -14,4 +14,4 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 
 EXPOSE 8002
 
-CMD ["python", "scripts/whisper_server.py", "--host", "0.0.0.0", "--port", "8002", "--model", "tiny.en", "--backend", "cpp"]
+CMD ["python", "scripts/whisper_server.py", "--host", "0.0.0.0", "--port", "8002"]
