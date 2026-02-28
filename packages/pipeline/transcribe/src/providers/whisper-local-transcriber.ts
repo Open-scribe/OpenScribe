@@ -1,11 +1,13 @@
 const DEFAULT_WHISPER_LOCAL_URL = "http://127.0.0.1:8002/v1/audio/transcriptions"
 const DEFAULT_WHISPER_LOCAL_MODEL = "tiny.en"
+const DEFAULT_WHISPER_LANGUAGE = "auto"
 const DEFAULT_TIMEOUT_MS = 15_000
 const DEFAULT_MAX_RETRIES = 2
 
 export interface WhisperLocalTranscriberOptions {
   baseUrl?: string
   model?: string
+  language?: string
   timeoutMs?: number
   maxRetries?: number
   fetchFn?: typeof fetch
@@ -71,10 +73,15 @@ export async function transcribeWavBuffer(
 ): Promise<string> {
   const url = options?.baseUrl || process.env.WHISPER_LOCAL_URL || DEFAULT_WHISPER_LOCAL_URL
   const model = options?.model || process.env.WHISPER_LOCAL_MODEL || DEFAULT_WHISPER_LOCAL_MODEL
+  const language = model.endsWith(".en") ? "en" : options?.language || process.env.WHISPER_LANGUAGE || DEFAULT_WHISPER_LANGUAGE
   const timeoutMs = options?.timeoutMs ?? resolvePositiveInteger(process.env.WHISPER_LOCAL_TIMEOUT_MS, DEFAULT_TIMEOUT_MS)
   const maxRetries = options?.maxRetries ?? resolvePositiveInteger(process.env.WHISPER_LOCAL_MAX_RETRIES, DEFAULT_MAX_RETRIES)
   const fetchFn = options?.fetchFn ?? globalThis.fetch.bind(globalThis)
   const waitFn = options?.waitFn ?? wait
+
+  if (model.endsWith(".en") && process.env.WHISPER_LANGUAGE != "en" && process.env.WHISPER_LANGUAGE != "auto") {
+    console.warn(`⚠️  Warning: WHISPER_LANGUAGE setting ignored since model '${model}' can only transcribe language 'en'.`)
+  }
 
   validateLocalOrHttpsUrl(url, "Whisper local API")
 
@@ -82,6 +89,9 @@ export async function transcribeWavBuffer(
   const blob = new Blob([new Uint8Array(buffer)], { type: "audio/wav" })
   formData.append("file", blob, filename)
   formData.append("model", model)
+  if (language != "auto") {
+    formData.append("language", language)
+  }
   formData.append("response_format", "json")
 
   const totalAttempts = maxRetries + 1
