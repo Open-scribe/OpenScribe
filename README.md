@@ -137,6 +137,11 @@ OpenScribe supports three workflows. **Mixed web mode is the default path.**
 - Configure with `TRANSCRIPTION_PROVIDER=whisper_local` in `apps/web/.env.local`
 - [Setup guide](./docs/WHISPER-LOCAL-SETUP.md)
 
+**Language support**
+- Default model `tiny.en` as well as all `.en`-models transcribes English only
+- Multilingual transcription works for both local and API-based models
+- Multilingual transcription is supported by setting `WHISPER_LANGUAGE` (see `.env.local.example` for details) and (for local use) switching to a non-`.en` Whisper model (e.g. `tiny`, `base`, `small`)
+
 ### Local-only Desktop (optional)
 - Transcription: local Whisper backend in `local-only/openscribe-backend`
 - Notes: local Ollama models (`llama3.2:*`, `gemma3:4b`)
