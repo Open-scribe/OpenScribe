@@ -1,7 +1,14 @@
 "use client"
 
 import { useState, useCallback, useRef, useEffect } from "react"
-import { createPipelineError, toPipelineError, type PipelineError } from "@pipeline-errors"
+import {
+  createFinalUploadFailure,
+  createPipelineError,
+  isPipelineError,
+  toFinalUploadWorkflowError,
+  toPipelineError,
+  type PipelineError,
+} from "@pipeline-errors"
 import type { Encounter } from "@storage/types"
 import { useEncounters, EncounterList, IdleView, NewEncounterForm, RecordingView, ProcessingView, ErrorBoundary, PermissionsDialog, SettingsDialog, SettingsBar, useHttpsWarning } from "@ui"
 import { NoteEditor } from "@note-rendering"
@@ -637,19 +644,20 @@ function HomePageContent() {
           await new Promise((resolve) => setTimeout(resolve, 250 * attempt))
           return uploadFinalRecording(activeSessionId, blob, attempt + 1)
         }
-        let message = `Final upload failed (${response.status})`
+        let serverError: unknown = null
         try {
-          const body = (await response.json()) as { error?: PipelineError }
-          if (body?.error?.message) {
-            message = body.error.message
-          }
-          if (body?.error) {
-            setWorkflowError(body.error)
-          }
+          const body = (await response.json()) as { error?: unknown }
+          serverError = body?.error
         } catch {
-          // ignore
+          // ignore JSON parse failures
         }
-        throw new Error(message)
+        const failure = createFinalUploadFailure(response.status, serverError)
+        const parsedError = failure.parsedError
+        if (parsedError) {
+          setWorkflowError(parsedError)
+          throw failure.error
+        }
+        throw failure.error
       }
     } catch (error) {
       if (attempt < 3) {
@@ -657,13 +665,10 @@ function HomePageContent() {
         return uploadFinalRecording(activeSessionId, blob, attempt + 1)
       }
       debugError("Failed to upload final recording:", error)
-      setWorkflowError(
-        toPipelineError(error, {
-          code: "api_error",
-          message: "Failed to upload final recording",
-          recoverable: true,
-        }),
-      )
+      const finalUploadWorkflowError = toFinalUploadWorkflowError(error)
+      if (finalUploadWorkflowError) {
+        setWorkflowError(finalUploadWorkflowError)
+      }
       setTranscriptionStatus("failed")
       throw error
     }

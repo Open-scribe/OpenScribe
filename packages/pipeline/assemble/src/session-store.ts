@@ -63,6 +63,7 @@ class TranscriptionSessionStore {
   constructor() {
     // Run cleanup every 5 minutes
     this.cleanupInterval = setInterval(() => this.cleanupOldSessions(), 5 * 60 * 1000)
+    if (this.cleanupInterval?.unref) this.cleanupInterval.unref()
   }
 
   private cleanupOldSessions() {
@@ -217,7 +218,7 @@ class TranscriptionSessionStore {
         code: normalizedError.code,
         message: normalizedError.message,
         recoverable: normalizedError.recoverable,
-        details: normalizedError.details ?? null,
+        details: normalizedError.details,
       },
     })
   }
