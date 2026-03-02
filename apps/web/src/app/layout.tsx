@@ -1,6 +1,5 @@
 import type React from "react"
 import type { Metadata } from "next"
-import { Analytics } from "@vercel/analytics/next"
 import "./globals.css"
 
 // Updated metadata for OpenScribe clinical documentation app
@@ -24,7 +23,6 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`font-sans antialiased`} suppressHydrationWarning>
         {children}
-        <Analytics />
       </body>
     </html>
   )

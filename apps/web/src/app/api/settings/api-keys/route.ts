@@ -2,30 +2,61 @@ import { NextRequest, NextResponse } from "next/server"
 import { promises as fs } from "fs"
 import path from "path"
 import crypto from "crypto"
-import { writeAuditEntry } from "@storage/audit-log"
+import { allowUserApiKeys, isHostedMode } from "@storage/hosted-mode"
+import { writeServerAuditEntry, logSanitizedServerError } from "@storage/server-audit"
 
 // Encryption configuration
 const ALGORITHM = "aes-256-gcm"
 const IV_LENGTH = 12
-const AUTH_TAG_LENGTH = 16
 const KEY_LENGTH = 32
+
+function toUint8Array(value: Buffer | Uint8Array): Uint8Array {
+  return Uint8Array.from(value)
+}
+
+function toBase64(value: Uint8Array): string {
+  return Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString("base64")
+}
+
+function fromBase64(value: string): Uint8Array {
+  return toUint8Array(Buffer.from(value, "base64"))
+}
+
+function encodeUtf8(value: string): Uint8Array {
+  return new TextEncoder().encode(value)
+}
+
+function decodeUtf8(value: Uint8Array): string {
+  return new TextDecoder().decode(value)
+}
+
+function concatBytes(chunks: Uint8Array[]): Uint8Array {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
+  const out = new Uint8Array(totalLength)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.length
+  }
+  return out
+}
 
 /**
  * Get or generate encryption key for API key file.
  * In Electron, we could use safeStorage, but Next.js API routes run in Node.js
  * so we store an encrypted key in a separate file.
  */
-async function getEncryptionKey(): Promise<Buffer> {
+async function getEncryptionKey(): Promise<Uint8Array> {
   const configDir = path.dirname(getConfigPath())
   const keyPath = path.join(configDir, ".encryption-key")
   
   try {
     // Try to read existing key
-    const keyData = await fs.readFile(keyPath)
-    return keyData
+    const keyData = await fs.readFile(keyPath, "utf8")
+    return fromBase64(keyData)
   } catch {
     // Generate new key
-    const key = crypto.randomBytes(KEY_LENGTH)
+    const key = toUint8Array(crypto.randomBytes(KEY_LENGTH))
     
     // Ensure directory exists
     try {
@@ -33,7 +64,7 @@ async function getEncryptionKey(): Promise<Buffer> {
     } catch {}
     
     // Store key with restrictive permissions
-    await fs.writeFile(keyPath, key, { mode: 0o600 })
+    await fs.writeFile(keyPath, toBase64(key), { mode: 0o600 })
     return key
   }
 }
@@ -43,16 +74,18 @@ async function getEncryptionKey(): Promise<Buffer> {
  */
 async function encryptData(plaintext: string): Promise<string> {
   const key = await getEncryptionKey()
-  const iv = crypto.randomBytes(IV_LENGTH)
+  const iv = toUint8Array(crypto.randomBytes(IV_LENGTH))
   
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv)
-  let encrypted = cipher.update(plaintext, "utf8")
-  encrypted = Buffer.concat([encrypted, cipher.final()])
+  const encrypted = concatBytes([
+    toUint8Array(cipher.update(encodeUtf8(plaintext))),
+    toUint8Array(cipher.final()),
+  ])
   
-  const authTag = cipher.getAuthTag()
+  const authTag = toUint8Array(cipher.getAuthTag())
   
   // Format: enc.v2.<iv>.<authTag>.<ciphertext> (all base64)
-  return `enc.v2.${iv.toString("base64")}.${authTag.toString("base64")}.${encrypted.toString("base64")}`
+  return `enc.v2.${toBase64(iv)}.${toBase64(authTag)}.${toBase64(encrypted)}`
 }
 
 /**
@@ -64,17 +97,19 @@ async function decryptData(payload: string): Promise<string> {
   // Check for encrypted format
   if (parts.length === 5 && parts[0] === "enc" && parts[1] === "v2") {
     const key = await getEncryptionKey()
-    const iv = Buffer.from(parts[2], "base64")
-    const authTag = Buffer.from(parts[3], "base64")
-    const encrypted = Buffer.from(parts[4], "base64")
+    const iv = fromBase64(parts[2])
+    const authTag = fromBase64(parts[3])
+    const encrypted = fromBase64(parts[4])
     
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv)
     decipher.setAuthTag(authTag)
     
-    let decrypted = decipher.update(encrypted)
-    decrypted = Buffer.concat([decrypted, decipher.final()])
+    const decrypted = concatBytes([
+      toUint8Array(decipher.update(encrypted)),
+      toUint8Array(decipher.final()),
+    ])
     
-    return decrypted.toString("utf8")
+    return decodeUtf8(decrypted)
   }
   
   // Legacy unencrypted format - return as-is and will be re-encrypted on next save
@@ -90,7 +125,7 @@ function getConfigPath(): string {
       const userDataPath = app.getPath("userData")
       return path.join(userDataPath, "api-keys.json")
     }
-  } catch (error) {
+  } catch {
     // Electron not available (development or build time)
   }
   // Development environment - use temp directory
@@ -98,6 +133,18 @@ function getConfigPath(): string {
 }
 
 export async function POST(req: NextRequest) {
+  if (isHostedMode() && !allowUserApiKeys()) {
+    await writeServerAuditEntry({
+      event_type: "settings.api_key_configured",
+      success: false,
+      error_code: "disabled_in_hosted_mode",
+    })
+    return NextResponse.json(
+      { error: "User-managed API keys are disabled in hosted mode" },
+      { status: 403 }
+    )
+  }
+
   try {
     const body = await req.json()
     const { openaiApiKey, anthropicApiKey } = body
@@ -124,7 +171,7 @@ export async function POST(req: NextRequest) {
     await fs.writeFile(configPath, encrypted, { mode: 0o600 })
 
     // Audit log: API keys configured
-    await writeAuditEntry({
+    await writeServerAuditEntry({
       event_type: "settings.api_key_configured",
       success: true,
       metadata: {
@@ -135,10 +182,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error("Failed to save API keys:", error)
+    logSanitizedServerError("settings.api-keys.post", error)
 
     // Audit log: API key configuration failed
-    await writeAuditEntry({
+    await writeServerAuditEntry({
       event_type: "settings.api_key_configured",
       success: false,
       error_message: error instanceof Error ? error.message : String(error),
@@ -152,6 +199,17 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
+  if (isHostedMode() && !allowUserApiKeys()) {
+    return NextResponse.json(
+      {
+        openaiApiKey: "",
+        anthropicApiKey: "",
+        managedByPlatform: true,
+      },
+      { status: 200 }
+    )
+  }
+
   try {
     const configPath = getConfigPath()
 
@@ -171,7 +229,7 @@ export async function GET() {
       })
     }
   } catch (error) {
-    console.error("Failed to load API keys:", error)
+    logSanitizedServerError("settings.api-keys.get", error)
     return NextResponse.json(
       { error: "Failed to load API keys" },
       { status: 500 }

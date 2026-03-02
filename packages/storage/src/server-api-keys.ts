@@ -6,6 +6,7 @@
 import { readFileSync } from "fs"
 import { join } from "path"
 import crypto from "crypto"
+import { allowUserApiKeys, isHostedMode } from "./hosted-mode"
 
 const ALGORITHM = "aes-256-gcm"
 
@@ -83,6 +84,14 @@ function getConfigPath(): string {
 }
 
 export function getOpenAIApiKey(): string {
+  if (isHostedMode() && !allowUserApiKeys()) {
+    const managed = process.env.OPENAI_API_KEY
+    if (!managed) {
+      throw new Error("Missing OPENAI_API_KEY in hosted mode configuration.")
+    }
+    return managed
+  }
+
   // First try to load from config file
   try {
     const configPath = getConfigPath()
@@ -108,6 +117,14 @@ export function getOpenAIApiKey(): string {
 }
 
 export function getAnthropicApiKey(): string {
+  if (isHostedMode() && !allowUserApiKeys()) {
+    const managed = process.env.ANTHROPIC_API_KEY
+    if (!managed) {
+      throw new Error("Missing ANTHROPIC_API_KEY in hosted mode configuration.")
+    }
+    return managed
+  }
+
   // First try to load from config file
   try {
     const configPath = getConfigPath()

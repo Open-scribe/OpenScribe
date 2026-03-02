@@ -4,6 +4,7 @@
  */
 
 import { loadSecureItem, saveSecureItem } from "./secure-storage"
+import { allowUserApiKeys, isHostedMode } from "./hosted-mode"
 
 export interface ApiKeys {
   openaiApiKey: string
@@ -34,6 +35,10 @@ export async function getApiKeys(): Promise<ApiKeys> {
 }
 
 export async function setApiKeys(keys: Partial<ApiKeys>): Promise<void> {
+  if (isHostedMode() && !allowUserApiKeys()) {
+    throw new Error("User-managed API keys are disabled in hosted mode.")
+  }
+
   try {
     const current = await getApiKeys()
     const updated = {
