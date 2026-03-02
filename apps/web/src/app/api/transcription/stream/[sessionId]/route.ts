@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server"
 import { transcriptionSessionStore } from "@transcript-assembly"
+import { requireAuth } from "@/lib/auth"
 
 export const runtime = "nodejs"
 
@@ -11,6 +12,14 @@ export async function GET(
   req: NextRequest,
   context: { params: Promise<{ sessionId: string }> | { sessionId: string } },
 ) {
+  const auth = await requireAuth(req)
+  if (!auth) {
+    return new Response(JSON.stringify({ error: { code: "unauthorized", message: "Authentication required" } }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    })
+  }
+
   const resolvedParams = "then" in context.params ? await context.params : context.params
   const { sessionId } = resolvedParams
   let cleanup: (() => void) | null = null

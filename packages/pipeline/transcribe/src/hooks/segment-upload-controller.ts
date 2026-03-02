@@ -15,6 +15,7 @@ export interface UploadError {
 export interface SegmentUploadControllerOptions {
   onError?: (error: UploadError) => void
   apiBaseUrl?: string
+  getAuthToken?: () => Promise<string | null>
 }
 
 export interface SegmentUploadControllerDeps {
@@ -48,6 +49,7 @@ export class SegmentUploadController {
   private readonly waitFn: (ms: number) => Promise<void>
   private readonly options?: SegmentUploadControllerOptions
   private readonly apiBaseUrl?: string
+  private readonly getAuthToken?: () => Promise<string | null>
 
   constructor(
     sessionId: string | null,
@@ -57,6 +59,7 @@ export class SegmentUploadController {
     this.sessionId = sessionId
     this.options = options
     this.apiBaseUrl = options?.apiBaseUrl
+    this.getAuthToken = options?.getAuthToken
     this.fetchFn = deps?.fetchFn ?? globalThis.fetch.bind(globalThis)
     if (!this.fetchFn) {
       throw new Error("fetch API is required for SegmentUploadController")
@@ -145,8 +148,16 @@ export class SegmentUploadController {
       const url = this.apiBaseUrl
         ? `${this.apiBaseUrl.replace(/\/+$/, "")}/api/transcription/segment`
         : "/api/transcription/segment"
+      const token = this.getAuthToken ? await this.getAuthToken() : null
+      const headers: Record<string, string> = {}
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
+
       const response = await this.fetchFn(url, {
         method: "POST",
+        headers,
+        credentials: "include",
         body: formData,
       })
 

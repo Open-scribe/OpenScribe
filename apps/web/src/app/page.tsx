@@ -6,7 +6,6 @@ import { useEncounters, EncounterList, IdleView, NewEncounterForm, RecordingView
 import { NoteEditor } from "@note-rendering"
 import { useAudioRecorder, type RecordedSegment, warmupMicrophonePermission, warmupSystemAudioPermission } from "@audio"
 import { useSegmentUpload, type UploadError } from "@transcription";
-import { generateClinicalNote } from "@/app/actions"
 import {
   getPreferences,
   setPreferences,
@@ -82,6 +81,18 @@ function resolveApiBaseUrl(): string {
   return "http://localhost:3001"
 }
 
+function isHostedModeClient(): boolean {
+  return String(process.env.NEXT_PUBLIC_HOSTED_MODE || "").toLowerCase() === "true"
+}
+
+function getStoredIdToken(): string | null {
+  if (typeof window === "undefined") return null
+  const fromStorage = window.localStorage.getItem("openscribe_id_token")
+  if (fromStorage) return fromStorage
+  const fromGlobal = window.__OPENSCRIBE_ID_TOKEN
+  return typeof fromGlobal === "string" && fromGlobal.length > 0 ? fromGlobal : null
+}
+
 function HomePageContent() {
   const { encounters, addEncounter, updateEncounter, deleteEncounter: removeEncounter, refresh } = useEncounters()
   
@@ -91,7 +102,7 @@ function HomePageContent() {
   const [view, setView] = useState<ViewState>({ type: "idle" })
   const [transcriptionStatus, setTranscriptionStatus] = useState<StepStatus>("pending")
   const [noteGenerationStatus, setNoteGenerationStatus] = useState<StepStatus>("pending")
-  const [processingMetrics, setProcessingMetrics] = useState<ProcessingMetrics>({})
+  const [, setProcessingMetrics] = useState<ProcessingMetrics>({})
   const [sessionId, setSessionId] = useState<string | null>(null)
 
   const currentEncounterIdRef = useRef<string | null>(null)
@@ -112,7 +123,7 @@ function HomePageContent() {
   const [localDurationMs, setLocalDurationMs] = useState(0)
   const [localPaused, setLocalPaused] = useState(false)
   const localSessionNameRef = useRef<string | null>(null)
-  const localBackendRef = useRef<Window["desktop"]["openscribeBackend"] | null>(null)
+  const localBackendRef = useRef<NonNullable<Window["desktop"]>["openscribeBackend"] | null>(null)
   const localLastTickRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -217,7 +228,32 @@ function HomePageContent() {
   const { enqueueSegment, resetQueue } = useSegmentUpload(sessionId, {
     onError: handleUploadError,
     apiBaseUrl: apiBaseUrlRef.current || undefined,
+    getAuthToken: async () => {
+      if (!isHostedModeClient()) return null
+      return getStoredIdToken()
+    },
   })
+
+  useEffect(() => {
+    if (!isHostedModeClient()) return
+    const token = getStoredIdToken()
+    if (!token) return
+
+    const baseUrl = apiBaseUrlRef.current
+    const url = baseUrl
+      ? `${baseUrl.replace(/\/+$/, "")}/api/auth/bootstrap`
+      : "/api/auth/bootstrap"
+
+    void fetch(url, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }).catch((error) => {
+      debugWarn("Hosted bootstrap call failed", error)
+    })
+  }, [])
 
   const cleanupSession = useCallback(() => {
     debugLog('[Cleanup] Closing EventSource connection')
@@ -379,13 +415,33 @@ function HomePageContent() {
         noteGenerationStartedAt: prev.noteGenerationStartedAt ?? Date.now(),
       }))
       try {
-        const note = await generateClinicalNote({
-          transcript,
-          patient_name: patientName,
-          visit_reason: visitReason,
-          noteLength: noteLengthRef.current,
-          template,
+        const baseUrl = apiBaseUrlRef.current
+        const url = baseUrl ? `${baseUrl.replace(/\/+$/, "")}/api/notes/generate` : "/api/notes/generate"
+        const token = isHostedModeClient() ? getStoredIdToken() : null
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        }
+        if (token) {
+          headers.Authorization = `Bearer ${token}`
+        }
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          credentials: "include",
+          body: JSON.stringify({
+            transcript,
+            patient_name: patientName,
+            visit_reason: visitReason,
+            noteLength: noteLengthRef.current,
+            template,
+          }),
         })
+        if (!response.ok) {
+          const errBody = (await response.json().catch(() => ({}))) as { error?: { message?: string } }
+          throw new Error(errBody?.error?.message || `Note generation failed (${response.status})`)
+        }
+        const body = (await response.json()) as { note: string }
+        const note = body.note
         await updateEncounterRef.current(encounterId, {
           note_text: note,
           status: "completed",
@@ -595,8 +651,15 @@ function HomePageContent() {
       const url = baseUrl
         ? `${baseUrl.replace(/\/+$/, "")}/api/transcription/final`
         : "/api/transcription/final"
+      const token = isHostedModeClient() ? getStoredIdToken() : null
+      const headers: Record<string, string> = {}
+      if (token) {
+        headers.Authorization = `Bearer ${token}`
+      }
       const response = await fetch(url, {
         method: "POST",
+        headers,
+        credentials: "include",
         body: formData,
       })
       if (!response.ok) {
@@ -737,7 +800,7 @@ function HomePageContent() {
             processingEndedAt: Date.now(),
           }))
         }
-      } catch (error) {
+      } catch {
         setTranscriptionStatus("failed")
         setNoteGenerationStatus("failed")
         setProcessingMetrics((prev) => ({
