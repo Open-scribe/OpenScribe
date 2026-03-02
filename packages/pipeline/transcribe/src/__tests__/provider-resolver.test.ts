@@ -11,6 +11,7 @@ test("resolveTranscriptionProvider defaults to whisper_local with tiny.en model"
 
 test("resolveTranscriptionProvider supports explicit provider aliases", () => {
   assert.equal(resolveTranscriptionProvider({ TRANSCRIPTION_PROVIDER: "medasr" }).provider, "medasr")
+  assert.equal(resolveTranscriptionProvider({ TRANSCRIPTION_PROVIDER: "gcp_stt_v2" }).provider, "gcp_stt_v2")
   assert.equal(resolveTranscriptionProvider({ TRANSCRIPTION_PROVIDER: "openai" }).provider, "whisper_openai")
   assert.equal(resolveTranscriptionProvider({ TRANSCRIPTION_PROVIDER: "whisper_openai" }).provider, "whisper_openai")
   assert.equal(resolveTranscriptionProvider({ TRANSCRIPTION_PROVIDER: "whisper_local" }).provider, "whisper_local")
