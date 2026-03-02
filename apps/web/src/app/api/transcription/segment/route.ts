@@ -1,7 +1,8 @@
 import type { NextRequest } from "next/server"
 import { parseWavHeader, resolveTranscriptionProvider, transcribeWithResolvedProvider } from "@transcription"
 import { transcriptionSessionStore } from "@transcript-assembly"
-import { writeAuditEntry } from "@storage/audit-log"
+import { writeServerAuditEntry, logSanitizedServerError } from "@storage/server-audit"
+import { requireAuth } from "@/lib/auth"
 
 export const runtime = "nodejs"
 
@@ -13,6 +14,11 @@ function jsonError(status: number, code: string, message: string) {
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAuth(req)
+  if (!auth) {
+    return jsonError(401, "unauthorized", "Authentication required")
+  }
+
   try {
     const formData = await req.formData()
     const sessionId = formData.get("session_id")
@@ -56,7 +62,7 @@ export async function POST(req: NextRequest) {
       const startedAtMs = Date.now()
       const transcript = await transcribeWithResolvedProvider(Buffer.from(arrayBuffer), `segment-${seqNo}.wav`, resolvedProvider)
       const latencyMs = Date.now() - startedAtMs
-      transcriptionSessionStore.addSegment(sessionId, {
+      await transcriptionSessionStore.addSegment(sessionId, {
         seqNo,
         startMs,
         endMs,
@@ -66,8 +72,10 @@ export async function POST(req: NextRequest) {
       })
 
       // Audit log: segment transcribed successfully
-      await writeAuditEntry({
+      await writeServerAuditEntry({
         event_type: "transcription.segment_uploaded",
+        org_id: auth.orgId,
+        user_id: auth.userId,
         resource_id: sessionId,
         success: true,
         metadata: {
@@ -83,19 +91,22 @@ export async function POST(req: NextRequest) {
         headers: { "Content-Type": "application/json" },
       })
     } catch (error) {
-      console.error("Segment transcription failed", error)
+      logSanitizedServerError("transcription.segment", error)
       const resolvedProvider = resolveTranscriptionProvider()
-      transcriptionSessionStore.emitError(
+      await transcriptionSessionStore.emitError(
         sessionId,
         "api_error",
         error instanceof Error ? error.message : "Transcription API failure",
       )
 
       // Audit log: segment transcription failed
-      await writeAuditEntry({
+      await writeServerAuditEntry({
         event_type: "transcription.failed",
+        org_id: auth.orgId,
+        user_id: auth.userId,
         resource_id: sessionId,
         success: false,
+        error_code: "transcription_failed",
         error_message: error instanceof Error ? error.message : "Transcription API failed",
         metadata: {
           seq_no: seqNo,
@@ -107,7 +118,7 @@ export async function POST(req: NextRequest) {
       return jsonError(502, "api_error", "Transcription API failed")
     }
   } catch (error) {
-    console.error("Segment ingestion failed", error)
+    logSanitizedServerError("transcription.segment.ingest", error)
     return jsonError(500, "storage_error", "Failed to process audio segment")
   }
 }

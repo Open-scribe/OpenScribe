@@ -207,7 +207,7 @@ test("REAL E2E: Complete pipeline with actual Whisper API", { timeout: 60_000 },
   
   console.log(`⏳ Adding ${transcripts.length} segments to session...`)
   for (const transcript of transcripts) {
-    transcriptionSessionStore.addSegment(sessionId, {
+    await transcriptionSessionStore.addSegment(sessionId, {
       seqNo: transcript.seqNo,
       startMs: transcript.startMs,
       endMs: transcript.endMs,
@@ -219,7 +219,7 @@ test("REAL E2E: Complete pipeline with actual Whisper API", { timeout: 60_000 },
   
   const combinedText = transcripts.map(t => t.text).join(" ").trim()
   console.log(`⏳ Setting final transcript...`)
-  transcriptionSessionStore.setFinalTranscript(sessionId, combinedText)
+  await transcriptionSessionStore.setFinalTranscript(sessionId, combinedText)
   
   unsubscribe()
   

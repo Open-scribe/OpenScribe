@@ -236,13 +236,13 @@ test("Phase 5: Session store - assemble transcript segments", { timeout: 5000 },
   
   for (const segment of segments) {
     console.log(`   Adding segment ${segment.seqNo}: "${segment.transcript}"`)
-    transcriptionSessionStore.addSegment(sessionId, segment)
+    await transcriptionSessionStore.addSegment(sessionId, segment)
   }
   console.log(`✅ Added ${segments.length} segments`)
   
   console.log("⏳ Setting final transcript...")
   const finalText = segments.map(s => s.transcript).join(" ")
-  transcriptionSessionStore.setFinalTranscript(sessionId, finalText)
+  await transcriptionSessionStore.setFinalTranscript(sessionId, finalText)
   console.log(`✅ Set final transcript: "${finalText}"`)
   
   unsubscribe()
@@ -363,7 +363,7 @@ test("Phase 6: Complete pipeline - audio to final transcript", { timeout: 10000 
   })
   
   for (const transcript of transcripts) {
-    transcriptionSessionStore.addSegment(sessionId, {
+    await transcriptionSessionStore.addSegment(sessionId, {
       seqNo: transcript.seqNo,
       startMs: transcript.startMs,
       endMs: transcript.endMs,
@@ -374,7 +374,7 @@ test("Phase 6: Complete pipeline - audio to final transcript", { timeout: 10000 
   }
   
   const combinedText = transcripts.map(t => t.text).join(" ")
-  transcriptionSessionStore.setFinalTranscript(sessionId, combinedText)
+  await transcriptionSessionStore.setFinalTranscript(sessionId, combinedText)
   
   unsubscribe()
   
