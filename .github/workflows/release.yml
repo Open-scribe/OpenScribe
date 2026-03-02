@@ -1,0 +1,50 @@
+name: Release Deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint && pnpm typecheck && pnpm test:no-phi-logs
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+      - name: Setup gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Configure Docker auth
+        run: gcloud auth configure-docker ${{ secrets.GCP_ARTIFACT_REGISTRY_HOST }} --quiet
+      - name: Build and push web image
+        env:
+          IMAGE_TAG: ${{ github.ref_name }}
+        run: |
+          IMAGE_URI="${{ secrets.GCP_ARTIFACT_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GCP_ARTIFACT_REGISTRY_REPOSITORY }}/openscribe-web:${IMAGE_TAG}"
+          docker build -t "${IMAGE_URI}" -f docker/web.Dockerfile .
+          docker push "${IMAGE_URI}"
+          echo "IMAGE_URI=${IMAGE_URI}" >> $GITHUB_ENV
+      - name: Deploy to Cloud Run (prod)
+        run: |
+          gcloud run deploy ${{ secrets.GCP_CLOUD_RUN_SERVICE }} \
+            --image "${IMAGE_URI}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --region "${{ secrets.GCP_REGION }}" \
+            --platform managed \
+            --allow-unauthenticated
