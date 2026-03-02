@@ -1,0 +1,32 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/terraform/**'
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [dev, staging, prod]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform Init
+        run: terraform -chdir=infra/terraform/environments/${{ matrix.env }} init -backend=false
+      - name: Terraform Validate
+        run: terraform -chdir=infra/terraform/environments/${{ matrix.env }} validate
+      - name: Terraform Plan
+        run: |
+          terraform -chdir=infra/terraform/environments/${{ matrix.env }} plan -input=false -refresh=false \
+            -var="project_id=dummy-project" \
+            -var="region=us-central1" \
+            -var="artifact_repository_id=openscribe-images" \
+            -var="service_name=openscribe-web-${{ matrix.env }}" \
+            -var="service_account=openscribe-runtime@dummy-project.iam.gserviceaccount.com" \
+            -var="image=us-central1-docker.pkg.dev/dummy-project/openscribe-images/openscribe-web:latest" \
+            -var="redis_name=openscribe-redis-${{ matrix.env }}" \
+            -var="anthropic_secret_id=anthropic-api-key"

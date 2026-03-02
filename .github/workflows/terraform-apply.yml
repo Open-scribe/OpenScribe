@@ -1,0 +1,30 @@
+name: Terraform Apply
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        required: true
+        options: [dev, staging, prod]
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform Init
+        run: terraform -chdir=infra/terraform/environments/${{ github.event.inputs.environment }} init -input=false
+      - name: Terraform Apply
+        env:
+          TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+          TF_VAR_region: ${{ secrets.GCP_REGION }}
+          TF_VAR_artifact_repository_id: ${{ secrets.GCP_ARTIFACT_REGISTRY_REPOSITORY }}
+          TF_VAR_service_name: ${{ secrets.GCP_CLOUD_RUN_SERVICE }}
+          TF_VAR_service_account: ${{ secrets.GCP_RUNTIME_SERVICE_ACCOUNT }}
+          TF_VAR_image: ${{ secrets.GCP_CLOUD_RUN_IMAGE }}
+          TF_VAR_redis_name: ${{ secrets.GCP_REDIS_INSTANCE_NAME }}
+          TF_VAR_anthropic_secret_id: ${{ secrets.GCP_ANTHROPIC_SECRET_ID }}
+        run: terraform -chdir=infra/terraform/environments/${{ github.event.inputs.environment }} apply -auto-approve -input=false

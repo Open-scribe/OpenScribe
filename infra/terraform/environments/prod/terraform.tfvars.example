@@ -1,0 +1,18 @@
+project_id                = "your-gcp-project"
+region                    = "us-central1"
+artifact_repository_id    = "openscribe-images"
+service_name              = "openscribe-web"
+service_account           = "openscribe-runtime@your-gcp-project.iam.gserviceaccount.com"
+image                     = "us-central1-docker.pkg.dev/your-gcp-project/openscribe-images/openscribe-web:latest"
+allow_unauthenticated     = true
+firestore_location        = "nam5"
+create_firestore_database = false
+redis_name                = "openscribe-redis"
+redis_memory_size_gb      = 1
+redis_tier                = "BASIC"
+redis_authorized_network  = null
+anthropic_secret_id       = "anthropic-api-key"
+env_vars = {
+  HOSTED_MODE            = "true"
+  TRANSCRIPTION_PROVIDER = "gcp_stt_v2"
+}
