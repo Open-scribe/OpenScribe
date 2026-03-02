@@ -131,6 +131,12 @@ curl http://127.0.0.1:8002/health
 
 OpenScribe supports three workflows. **Mixed web mode is the default path.**
 
+### Local-First Guardrail
+- Hosted/multi-user controls are opt-in and disabled by default.
+- Unless `HOSTED_MODE=true` (and `NEXT_PUBLIC_HOSTED_MODE=true`) is explicitly set, OpenScribe continues running in local-first mode.
+- Local workflows remain the core path and are not replaced by hosted features.
+- Hosted operations/runbook details: [docs/compliance/HOSTED_OPERATIONS_RUNBOOK.md](./docs/compliance/HOSTED_OPERATIONS_RUNBOOK.md)
+
 ### Mixed Web (default)
 - Transcription: local Whisper server (`pnpm whisper:server`) with default model `tiny.en`
 - Notes: larger model (default Claude in web path)

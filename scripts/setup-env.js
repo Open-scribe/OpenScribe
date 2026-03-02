@@ -49,6 +49,12 @@ ANTHROPIC_API_KEY="sk-ant-your-key"
 
 # Auto-generated secure storage key (do not modify)
 NEXT_PUBLIC_SECURE_STORAGE_KEY="${secureKey}"
+
+# Hosted mode toggles
+HOSTED_MODE="false"
+NEXT_PUBLIC_HOSTED_MODE="false"
+ALLOW_USER_API_KEYS="true"
+PERSIST_SERVER_PHI="false"
 `
 }
 

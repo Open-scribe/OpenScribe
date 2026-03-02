@@ -14,6 +14,8 @@ closed SaaS product.
 - Provider-agnostic, modular design
 - AI output is always a draft requiring human review
 
+Hosted-mode contributions must preserve local-first defaults. New hosted features should remain gated behind explicit `HOSTED_MODE` flags.
+
 ## Ways to Contribute
 
 You do NOT need clinical experience to contribute.
@@ -56,7 +58,7 @@ High-priority contribution areas:
 
 1. Create a feature branch:
    ```bash
-   git checkout -b feature/descriptive-name
+   git checkout -b feat/descriptive-name
    ```
 2. Make changes with clear commits
 3. Add or update tests where applicable
@@ -71,6 +73,26 @@ High-priority contribution areas:
    pnpm lint
    ```
 6. Submit a Pull Request
+
+### Branch Naming Convention
+
+Use these branch prefixes:
+
+- `xmain` - only long-lived branch
+- `feat/<description>` - features
+- `fix/<description>` - bug fixes
+- `refactor/<description>` - non-functional code changes
+- `docs/<description>` - documentation
+- `chore/<description>` - maintenance/config/deps
+- `ci/<description>` - CI/CD changes
+
+Examples:
+
+```bash
+git checkout -b feat/hipaa-hosted-auth-guard
+git checkout -b ci/release-tag-workflow
+git checkout -b docs/branch-protection-policy
+```
 
 ## Code Standards
 
