@@ -9,6 +9,10 @@ export interface HostedUserContext {
   role?: OrgRole
 }
 
+function membershipId(userId: string, orgId: string): string {
+  return `${userId}_${orgId}`
+}
+
 function getProjectId(env: NodeJS.ProcessEnv = process.env): string {
   const projectId = env.GCP_PROJECT_ID || env.GOOGLE_CLOUD_PROJECT || env.GCLOUD_PROJECT
   if (!projectId) {
@@ -144,11 +148,27 @@ export async function ensureHostedUserBootstrap(user: { userId: string; email?: 
 
   const existing = await getDocument(`users/${user.userId}`)
   if (existing?.orgId && existing?.role) {
+    const orgId = String(existing.orgId)
+    const role = String(existing.role) as OrgRole
+    const membershipDocId = membershipId(user.userId, orgId)
+    const membership = await getDocument(`memberships/${membershipDocId}`)
+    if (!membership?.role) {
+      const now = new Date().toISOString()
+      await patchDocument(`memberships/${membershipDocId}`, {
+        id: membershipDocId,
+        userId: user.userId,
+        orgId,
+        role,
+        createdAt: now,
+        updatedAt: now,
+      })
+    }
+
     return {
       userId: user.userId,
       email: user.email,
-      orgId: String(existing.orgId),
-      role: String(existing.role) as OrgRole,
+      orgId,
+      role,
     }
   }
 
@@ -172,8 +192,9 @@ export async function ensureHostedUserBootstrap(user: { userId: string; email?: 
     updatedAt: now,
   })
 
-  await patchDocument(`memberships/${user.userId}_${orgId}`, {
-    id: `${user.userId}_${orgId}`,
+  const membershipDocId = membershipId(user.userId, orgId)
+  await patchDocument(`memberships/${membershipDocId}`, {
+    id: membershipDocId,
     userId: user.userId,
     orgId,
     role: 'org_owner',
@@ -195,14 +216,18 @@ export async function getHostedUserContext(userId: string): Promise<HostedUserCo
   }
 
   const user = await getDocument(`users/${userId}`)
-  if (!user?.orgId || !user?.role) {
+  if (!user?.orgId) {
     return null
   }
+
+  const orgId = String(user.orgId)
+  const membership = await getDocument(`memberships/${membershipId(userId, orgId)}`)
+  if (!membership?.role) return null
 
   return {
     userId,
     email: typeof user.email === 'string' ? user.email : undefined,
-    orgId: String(user.orgId),
-    role: String(user.role) as OrgRole,
+    orgId,
+    role: String(membership.role) as OrgRole,
   }
 }
