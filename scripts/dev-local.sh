@@ -11,6 +11,12 @@ ensure_backend_python() {
     return
   fi
 
+  # Check if python is not available
+  if ! command -v python3 &> /dev/null; then
+    echo "Error: Python 3 was not found, make sure python3 is installed in your machine AND available in your PATH." >&2
+    exit 1
+  fi
+
   echo "Creating backend virtual environment..."
   python3 -m venv "$BACKEND_VENV"
 }
