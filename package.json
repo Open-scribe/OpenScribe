@@ -34,6 +34,8 @@
     "build:desktop:linux": "node scripts/build-desktop.mjs linux",
     "build:backend": "node local-only/openscribe-backend/scripts/build-backend.mjs",
     "build:release:manifest": "node scripts/generate-release-manifest.mjs",
+    "build:release:checksums": "node scripts/generate-checksums.mjs",
+    "test:desktop:artifacts": "node scripts/smoke-desktop-artifacts.mjs",
     "download:ollama": "bash local-only/openscribe-backend/scripts/download-ollama.sh",
     "medgemma:scribe": "node scripts/medgemma-scribe.mjs",
     "medscribe:local": ". .venv-med/bin/activate && python scripts/local_medscribe.py"

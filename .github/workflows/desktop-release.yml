@@ -57,8 +57,17 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Backend Unit Tests
+        shell: bash
+        run: |
+          cd local-only/openscribe-backend
+          PYTHONPATH=. python -m unittest discover -s tests -p "test*_unittest.py"
+
       - name: Build Desktop Target
         run: pnpm build:desktop:${{ matrix.target }}
+
+      - name: Smoke Check Artifacts
+        run: pnpm test:desktop:artifacts
 
       - name: Generate Release Manifest
         run: pnpm build:release:manifest
@@ -66,10 +75,12 @@ jobs:
           RELEASE_VERSION: ${{ github.ref_name }}
           RELEASE_BASE_URL: ${{ inputs.release_base_url }}
 
+      - name: Generate Checksums
+        run: pnpm build:release:checksums
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.target }}
           path: |
             build/dist/**
-
