@@ -1511,10 +1511,7 @@ function compareVersions(current, latest) {
   return 0;
 }
 
-function getDownloadUrl(assets) {
-  const platform = process.platform;
-  const arch = process.arch;
-
+function getDownloadUrlFor(assets, platform, arch) {
   if (platform === 'darwin') {
     const armAsset = assets.find((asset) => asset.name.includes('arm64') && asset.name.includes('dmg'));
     const intelAsset = assets.find((asset) => asset.name.includes('x64') && asset.name.includes('dmg'));
@@ -1540,6 +1537,10 @@ function getDownloadUrl(assets) {
   }
 
   return assets.length > 0 ? assets[0].browser_download_url : null;
+}
+
+function getDownloadUrl(assets) {
+  return getDownloadUrlFor(assets, process.platform, process.arch);
 }
 
 async function runBackendHealthProbe() {
@@ -1575,5 +1576,6 @@ module.exports = {
   __test: {
     compareVersions,
     getDownloadUrl,
+    getDownloadUrlFor,
   },
 };
