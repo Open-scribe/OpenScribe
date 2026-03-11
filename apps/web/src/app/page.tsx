@@ -70,6 +70,14 @@ type SetupStatus = {
   selected_model?: string
 }
 
+type LocalRuntimeReadiness = {
+  success?: boolean
+  code?: string
+  userMessage?: string
+  error?: string
+  details?: unknown
+}
+
 function templateForVisitReason(visitReason?: string): "default" | "soap" {
   if (!visitReason) return "default"
   const normalized = visitReason.toLowerCase()
@@ -115,6 +123,9 @@ function HomePageContent() {
 
   const [showSettingsDialog, setShowSettingsDialog] = useState(false)
   const [showMixedKeyPrompt, setShowMixedKeyPrompt] = useState(false)
+  const [showLocalRuntimePrompt, setShowLocalRuntimePrompt] = useState(false)
+  const [localRuntimePromptMessage, setLocalRuntimePromptMessage] = useState("")
+  const [localRuntimePromptCode, setLocalRuntimePromptCode] = useState("")
   const [anthropicApiKeyInput, setAnthropicApiKeyInput] = useState("")
   const [hasAnthropicApiKey, setHasAnthropicApiKey] = useState(false)
   const [noteLength, setNoteLengthState] = useState<NoteLength>("long")
@@ -266,17 +277,62 @@ function HomePageContent() {
     setPreferences({ noteLength: length })
   }
 
-  const handleProcessingModeChange = (mode: ProcessingMode) => {
-    setProcessingModeState(mode)
-    setPreferences({ processingMode: mode })
-    void localBackendRef.current?.invoke("set-runtime-preference", mode)
-    if (mode === "mixed" && !hasAnthropicApiKey) {
+  const ensureLocalRuntimeReady = useCallback(async (): Promise<{ ok: boolean; payload?: LocalRuntimeReadiness }> => {
+    if (!localBackendRef.current) {
+      const payload: LocalRuntimeReadiness = {
+        success: false,
+        code: "LOCAL_BACKEND_UNAVAILABLE",
+        userMessage: "Local backend is unavailable on this machine.",
+      }
+      setLocalRuntimePromptCode(payload.code)
+      setLocalRuntimePromptMessage(payload.userMessage || "Local runtime is unavailable.")
+      setShowLocalRuntimePrompt(true)
+      return { ok: false, payload }
+    }
+
+    try {
+      const result = (await localBackendRef.current.invoke("ensure-local-runtime-ready")) as LocalRuntimeReadiness
+      if (result?.success) {
+        setShowLocalRuntimePrompt(false)
+        setLocalRuntimePromptMessage("")
+        setLocalRuntimePromptCode("")
+        return { ok: true, payload: result }
+      }
+      const message = result?.userMessage || result?.error || "Local runtime is not ready."
+      setLocalRuntimePromptCode(result?.code || "LOCAL_RUNTIME_NOT_READY")
+      setLocalRuntimePromptMessage(message)
+      setShowLocalRuntimePrompt(true)
+      return { ok: false, payload: result }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Local runtime readiness check failed."
+      setLocalRuntimePromptCode("LOCAL_RUNTIME_CHECK_FAILED")
+      setLocalRuntimePromptMessage(message)
+      setShowLocalRuntimePrompt(true)
+      return { ok: false }
+    }
+  }, [])
+
+  const handleProcessingModeChange = useCallback(async (mode: ProcessingMode) => {
+    if (mode === "local") {
+      const readiness = await ensureLocalRuntimeReady()
+      if (!readiness.ok) {
+        return false
+      }
+      setProcessingModeState("local")
+      setPreferences({ processingMode: "local" })
+      void localBackendRef.current?.invoke("set-runtime-preference", "local")
+      setShowMixedKeyPrompt(false)
+      return true
+    }
+
+    setProcessingModeState("mixed")
+    setPreferences({ processingMode: "mixed" })
+    void localBackendRef.current?.invoke("set-runtime-preference", "mixed")
+    if (!hasAnthropicApiKey) {
       setShowMixedKeyPrompt(true)
     }
-    if (mode === "local") {
-      setShowMixedKeyPrompt(false)
-    }
-  }
+    return true
+  }, [ensureLocalRuntimeReady, hasAnthropicApiKey])
 
   const handleSaveAnthropicApiKey = useCallback(async (value: string) => {
     const trimmed = value.trim()
@@ -670,6 +726,12 @@ function HomePageContent() {
     visit_reason: string
   }) => {
     try {
+      if (useLocalBackend) {
+        const readiness = await ensureLocalRuntimeReady()
+        if (!readiness.ok) {
+          return
+        }
+      }
       if (!useLocalBackend && !hasAnthropicApiKey) {
         setShowMixedKeyPrompt(true)
         setShowSettingsDialog(true)
@@ -1180,14 +1242,55 @@ function HomePageContent() {
                 type="button"
                 disabled={!localBackendAvailable}
                 className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => {
+                onClick={async () => {
                   if (!localBackendAvailable) return
-                  handleProcessingModeChange("local")
-                  setShowMixedKeyPrompt(false)
-                  setShowSettingsDialog(false)
+                  const switched = await handleProcessingModeChange("local")
+                  if (switched) {
+                    setShowMixedKeyPrompt(false)
+                    setShowSettingsDialog(false)
+                  }
                 }}
               >
                 Switch to Local-only
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showLocalRuntimePrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-background p-6 shadow-2xl">
+            <h3 className="text-lg font-semibold text-foreground">Local Mode Not Ready</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {localRuntimePromptMessage || "Local runtime checks failed."}
+            </p>
+            {localRuntimePromptCode && (
+              <p className="mt-2 text-xs text-muted-foreground">Code: {localRuntimePromptCode}</p>
+            )}
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                className="rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
+                onClick={() => {
+                  setShowLocalRuntimePrompt(false)
+                  setShowLocalSetupWizard(true)
+                }}
+              >
+                Open Local Setup
+              </button>
+              <button
+                type="button"
+                className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90"
+                onClick={async () => {
+                  setShowLocalRuntimePrompt(false)
+                  await handleProcessingModeChange("mixed")
+                  if (!hasAnthropicApiKey) {
+                    setShowSettingsDialog(true)
+                    setShowMixedKeyPrompt(true)
+                  }
+                }}
+              >
+                Stay on Mixed
               </button>
             </div>
           </div>

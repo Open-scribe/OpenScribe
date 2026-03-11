@@ -127,7 +127,7 @@ export function PermissionsDialog({ onComplete }: PermissionsDialogProps) {
     }
   }
 
-  const canContinue = microphoneGranted && screenGranted
+  const canContinue = microphoneGranted
 
   if (!initialCheckDone) {
     return (
@@ -185,7 +185,7 @@ export function PermissionsDialog({ onComplete }: PermissionsDialogProps) {
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
                 <Monitor className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
               </div>
-              <span className="font-medium text-foreground">Transcribe other people&apos;s voices</span>
+              <span className="font-medium text-foreground">Transcribe other people&apos;s voices (optional)</span>
             </div>
             {screenGranted ? (
               <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
@@ -213,6 +213,11 @@ export function PermissionsDialog({ onComplete }: PermissionsDialogProps) {
             Continue
           </Button>
         </div>
+        {!screenGranted && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            You can continue without system audio and enable it later for richer multi-speaker capture.
+          </p>
+        )}
       </div>
     </div>
   )

@@ -83,6 +83,22 @@ function fail(errorCode, message, details) {
   };
 }
 
+function parseLastJsonObject(output) {
+  const lines = String(output || '').split('\n').map((line) => line.trim()).filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    try {
+      return JSON.parse(lines[i]);
+    } catch (error) {
+      // Continue scanning backwards for a JSON payload line.
+    }
+  }
+  try {
+    return JSON.parse(String(output || '').trim());
+  } catch (error) {
+    return null;
+  }
+}
+
 // Telemetry state
 let posthogClient = null;
 let telemetryEnabled = false;
@@ -1406,6 +1422,92 @@ function registerOpenScribeIpcHandlers(mainWindow) {
     }
   });
 
+  ipcMain.handle('ensure-local-runtime-ready', async () => {
+    try {
+      const setupStatusRaw = await runPythonScript(mainWindow, 'simple_recorder.py', ['setup-status'], true);
+      const setupStatus = parseLastJsonObject(setupStatusRaw);
+      if (!setupStatus || setupStatus.setup_completed !== true) {
+        trackEvent('error_occurred', { error_type: 'local_runtime_setup_incomplete' });
+        return fail(
+          'SETUP_INCOMPLETE',
+          'Local setup is incomplete. Run local setup before switching to local mode.',
+          { setupStatus },
+        );
+      }
+
+      const setupCheckRaw = await runPythonScript(mainWindow, 'simple_recorder.py', ['setup-check'], true);
+      const failingChecks = String(setupCheckRaw || '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('❌'));
+      if (failingChecks.length > 0) {
+        trackEvent('error_occurred', { error_type: 'local_runtime_setup_check_failed' });
+        return fail(
+          'SETUP_CHECK_FAILED',
+          'Local runtime dependencies are missing. Complete setup requirements before switching to local mode.',
+          { failingChecks, setupCheckRaw },
+        );
+      }
+
+      const whisperStatus = await ensureWhisperService(mainWindow);
+      if (!whisperStatus?.success) {
+        trackEvent('error_occurred', { error_type: 'local_runtime_whisper_unhealthy' });
+        return fail(
+          'WHISPER_UNHEALTHY',
+          'Whisper service is not healthy. Retry setup or restart OpenScribe.',
+          whisperStatus,
+        );
+      }
+
+      const currentModelRaw = await runPythonScript(mainWindow, 'simple_recorder.py', ['get-model'], true);
+      const currentModelPayload = parseLastJsonObject(currentModelRaw);
+      const selectedModel = currentModelPayload?.model;
+      if (!selectedModel) {
+        trackEvent('error_occurred', { error_type: 'local_runtime_model_unknown' });
+        return fail('MODEL_NOT_INSTALLED', 'No local model is selected. Choose and download a local model first.');
+      }
+
+      const modelStatusRaw = await runPythonScript(mainWindow, 'simple_recorder.py', ['check-model', selectedModel], true);
+      const modelStatus = parseLastJsonObject(modelStatusRaw);
+      if (!modelStatus?.installed) {
+        trackEvent('error_occurred', { error_type: 'local_runtime_model_not_installed' });
+        return fail(
+          'MODEL_NOT_INSTALLED',
+          `Local model "${selectedModel}" is not installed. Download it before switching to local mode.`,
+          { selectedModel, modelStatus },
+        );
+      }
+
+      const warmupRaw = await runPythonScript(mainWindow, 'simple_recorder.py', ['warmup'], true);
+      const warmupPayload = parseLastJsonObject(warmupRaw);
+      if (!warmupPayload?.success) {
+        trackEvent('error_occurred', { error_type: 'local_runtime_ollama_not_ready' });
+        return fail(
+          'OLLAMA_NOT_READY',
+          'Ollama/model warmup failed. Ensure Ollama is running and model files are healthy.',
+          warmupPayload || { warmupRaw },
+        );
+      }
+
+      return ok({
+        code: 'READY',
+        userMessage: 'Local runtime is ready.',
+        details: {
+          selectedModel,
+          whisper: whisperStatus,
+          warmup: warmupPayload,
+        },
+      });
+    } catch (error) {
+      trackEvent('error_occurred', { error_type: 'local_runtime_check_failed' });
+      return fail(
+        'LOCAL_RUNTIME_CHECK_FAILED',
+        'Failed to validate local runtime readiness. Retry or run local setup.',
+        { message: error.message },
+      );
+    }
+  });
+
   ipcMain.handle('set-setup-completed', async (_event, completed) => {
     try {
       const result = await runPythonScript(
@@ -1433,7 +1535,7 @@ function registerOpenScribeIpcHandlers(mainWindow) {
   ipcMain.handle('get-ipc-contract', async () => {
     return ok({
       channels: {
-        setup: ['startup-setup-check', 'get-setup-status', 'set-setup-completed', 'setup-whisper'],
+        setup: ['startup-setup-check', 'get-setup-status', 'set-setup-completed', 'setup-whisper', 'ensure-local-runtime-ready'],
         models: ['list-models', 'get-current-model', 'set-model', 'pull-model', 'setup-ollama-and-model'],
       },
     });
