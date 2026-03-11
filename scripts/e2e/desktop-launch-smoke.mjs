@@ -5,12 +5,14 @@ import { detectExecutable } from "./helpers.mjs"
 
 const timeoutMs = Number(process.env.OPENSCRIBE_E2E_TIMEOUT_MS || 90000)
 const exe = detectExecutable(process.platform)
+const preferredPort = String(4300 + Math.floor(Math.random() * 1000))
 console.log(`Launching packaged app smoke: ${exe}`)
 
 const child = spawn(exe, [], {
   stdio: "pipe",
   env: {
     ...process.env,
+    DESKTOP_SERVER_PORT: preferredPort,
     OPENSCRIBE_E2E_SMOKE: "1",
     OPENSCRIBE_E2E_STUB_PIPELINE: "1",
   },
