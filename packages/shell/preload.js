@@ -91,6 +91,7 @@ contextBridge.exposeInMainWorld('desktop', {
         'open-release-page',
         'get-setup-status',
         'set-setup-completed',
+        'ensure-mixed-runtime-ready',
         'ensure-local-runtime-ready',
         'set-runtime-preference',
         'get-ipc-contract',

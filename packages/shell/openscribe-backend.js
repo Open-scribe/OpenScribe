@@ -413,6 +413,15 @@ async function ensureWhisperService(mainWindow) {
   return { success: false, error: `Whisper service failed health check on ${WHISPER_LOCAL_HOST}:${WHISPER_LOCAL_PORT}` };
 }
 
+async function ensureWhisperModelReady(mainWindow) {
+  try {
+    await runPythonScript(mainWindow, 'simple_recorder.py', ['download-whisper-model'], true);
+    return { success: true, model: process.env.WHISPER_LOCAL_MODEL || 'tiny.en' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
 function stopWhisperService() {
   if (whisperServiceProcess && !whisperServiceProcess.killed) {
     whisperServiceProcess.kill('SIGTERM');
@@ -1422,6 +1431,50 @@ function registerOpenScribeIpcHandlers(mainWindow) {
     }
   });
 
+  ipcMain.handle('ensure-mixed-runtime-ready', async () => {
+    try {
+      const setupStatusRaw = await runPythonScript(mainWindow, 'simple_recorder.py', ['setup-status'], true);
+      const setupStatus = parseLastJsonObject(setupStatusRaw);
+
+      const whisperStatus = await ensureWhisperService(mainWindow);
+      if (!whisperStatus?.success) {
+        trackEvent('error_occurred', { error_type: 'mixed_runtime_whisper_unhealthy' });
+        return fail(
+          'WHISPER_UNHEALTHY',
+          'Whisper service is not healthy. Retry in a few seconds or restart OpenScribe.',
+          { setupStatus, whisperStatus },
+        );
+      }
+
+      const whisperModelStatus = await ensureWhisperModelReady(mainWindow);
+      if (!whisperModelStatus?.success) {
+        trackEvent('error_occurred', { error_type: 'mixed_runtime_whisper_model_unavailable' });
+        return fail(
+          'WHISPER_MODEL_UNAVAILABLE',
+          'Whisper model setup failed. Check your network connection and retry.',
+          { setupStatus, whisperModelStatus },
+        );
+      }
+
+      return ok({
+        code: 'READY',
+        userMessage: 'Mixed runtime is ready.',
+        details: {
+          setupStatus,
+          whisper: whisperStatus,
+          whisperModel: whisperModelStatus,
+        },
+      });
+    } catch (error) {
+      trackEvent('error_occurred', { error_type: 'mixed_runtime_check_failed' });
+      return fail(
+        'MIXED_RUNTIME_CHECK_FAILED',
+        'Failed to validate mixed runtime readiness.',
+        { message: error.message },
+      );
+    }
+  });
+
   ipcMain.handle('ensure-local-runtime-ready', async () => {
     try {
       const setupStatusRaw = await runPythonScript(mainWindow, 'simple_recorder.py', ['setup-status'], true);
@@ -1535,7 +1588,7 @@ function registerOpenScribeIpcHandlers(mainWindow) {
   ipcMain.handle('get-ipc-contract', async () => {
     return ok({
       channels: {
-        setup: ['startup-setup-check', 'get-setup-status', 'set-setup-completed', 'setup-whisper', 'ensure-local-runtime-ready'],
+        setup: ['startup-setup-check', 'get-setup-status', 'set-setup-completed', 'setup-whisper', 'ensure-mixed-runtime-ready', 'ensure-local-runtime-ready'],
         models: ['list-models', 'get-current-model', 'set-model', 'pull-model', 'setup-ollama-and-model'],
       },
     });

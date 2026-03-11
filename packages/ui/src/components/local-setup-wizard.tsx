@@ -41,7 +41,7 @@ export function LocalSetupWizard({
         <div className="mb-4">
           <h2 className="text-xl font-semibold text-foreground">Local Setup</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Complete local Whisper + model setup. Mixed mode remains your default until you switch.
+            Required only for Local-only mode. Mixed mode remains your default until you switch.
           </p>
         </div>
 

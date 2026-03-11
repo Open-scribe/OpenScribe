@@ -73,6 +73,16 @@ type SetupStatus = {
 type LocalRuntimeReadiness = {
   success?: boolean
   code?: string
+  errorCode?: string
+  userMessage?: string
+  error?: string
+  details?: unknown
+}
+
+type MixedRuntimeReadiness = {
+  success?: boolean
+  code?: string
+  errorCode?: string
   userMessage?: string
   error?: string
   details?: unknown
@@ -123,6 +133,9 @@ function HomePageContent() {
 
   const [showSettingsDialog, setShowSettingsDialog] = useState(false)
   const [showMixedKeyPrompt, setShowMixedKeyPrompt] = useState(false)
+  const [showMixedRuntimePrompt, setShowMixedRuntimePrompt] = useState(false)
+  const [mixedRuntimePromptMessage, setMixedRuntimePromptMessage] = useState("")
+  const [mixedRuntimePromptCode, setMixedRuntimePromptCode] = useState("")
   const [showLocalRuntimePrompt, setShowLocalRuntimePrompt] = useState(false)
   const [localRuntimePromptMessage, setLocalRuntimePromptMessage] = useState("")
   const [localRuntimePromptCode, setLocalRuntimePromptCode] = useState("")
@@ -142,6 +155,7 @@ function HomePageContent() {
   const localSessionNameRef = useRef<string | null>(null)
   const localBackendRef = useRef<Window["desktop"]["openscribeBackend"] | null>(null)
   const localLastTickRef = useRef<number | null>(null)
+  const mixedWarmupStartedRef = useRef(false)
 
   useEffect(() => {
     const prefs = getPreferences()
@@ -188,9 +202,6 @@ function HomePageContent() {
         setSupportedModels(modelNames)
         const preferredModel = setupData?.selected_model || modelData?.current_model || modelNames[0] || "llama3.2:1b"
         setSelectedSetupModel(preferredModel)
-        if (!setupData?.setup_completed) {
-          setShowLocalSetupWizard(true)
-        }
       } catch (error) {
         debugWarn("Local setup status load failed", error)
       }
@@ -277,6 +288,39 @@ function HomePageContent() {
     setPreferences({ noteLength: length })
   }
 
+  const ensureMixedRuntimeReady = useCallback(async (showPromptOnFailure = true): Promise<{ ok: boolean; payload?: MixedRuntimeReadiness }> => {
+    if (!localBackendRef.current) {
+      return { ok: true }
+    }
+
+    try {
+      const result = (await localBackendRef.current.invoke("ensure-mixed-runtime-ready")) as MixedRuntimeReadiness
+      if (result?.success) {
+        setShowMixedRuntimePrompt(false)
+        setMixedRuntimePromptCode("")
+        setMixedRuntimePromptMessage("")
+        return { ok: true, payload: result }
+      }
+
+      if (showPromptOnFailure) {
+        const code = result?.code || result?.errorCode || "MIXED_RUNTIME_NOT_READY"
+        const message = result?.userMessage || result?.error || "Mixed runtime is not ready."
+        setMixedRuntimePromptCode(code)
+        setMixedRuntimePromptMessage(message)
+        setShowMixedRuntimePrompt(true)
+      }
+      return { ok: false, payload: result }
+    } catch (error) {
+      if (showPromptOnFailure) {
+        const message = error instanceof Error ? error.message : "Mixed runtime readiness check failed."
+        setMixedRuntimePromptCode("MIXED_RUNTIME_CHECK_FAILED")
+        setMixedRuntimePromptMessage(message)
+        setShowMixedRuntimePrompt(true)
+      }
+      return { ok: false }
+    }
+  }, [])
+
   const ensureLocalRuntimeReady = useCallback(async (): Promise<{ ok: boolean; payload?: LocalRuntimeReadiness }> => {
     if (!localBackendRef.current) {
       const payload: LocalRuntimeReadiness = {
@@ -299,7 +343,7 @@ function HomePageContent() {
         return { ok: true, payload: result }
       }
       const message = result?.userMessage || result?.error || "Local runtime is not ready."
-      setLocalRuntimePromptCode(result?.code || "LOCAL_RUNTIME_NOT_READY")
+      setLocalRuntimePromptCode(result?.code || result?.errorCode || "LOCAL_RUNTIME_NOT_READY")
       setLocalRuntimePromptMessage(message)
       setShowLocalRuntimePrompt(true)
       return { ok: false, payload: result }
@@ -311,6 +355,13 @@ function HomePageContent() {
       return { ok: false }
     }
   }, [])
+
+  useEffect(() => {
+    if (!localBackendAvailable || !localBackendRef.current) return
+    if (mixedWarmupStartedRef.current) return
+    mixedWarmupStartedRef.current = true
+    void ensureMixedRuntimeReady(false)
+  }, [ensureMixedRuntimeReady, localBackendAvailable])
 
   const handleProcessingModeChange = useCallback(async (mode: ProcessingMode) => {
     if (mode === "local") {
@@ -738,6 +789,12 @@ function HomePageContent() {
         return
       }
       if (!useLocalBackend) {
+        const readiness = await ensureMixedRuntimeReady(true)
+        if (!readiness.ok) {
+          return
+        }
+      }
+      if (!useLocalBackend) {
         cleanupSession()
       }
       finalTranscriptRef.current = ""
@@ -762,13 +819,6 @@ function HomePageContent() {
       // Optimistically flip to recording immediately for responsive UI.
       setView({ type: "recording", encounterId: encounter.id })
       setTranscriptionStatus("in-progress")
-      if (!useLocalBackend && localBackendRef.current) {
-        const whisperReady = await localBackendRef.current.invoke("ensure-whisper-service")
-        if (!(whisperReady as { success?: boolean }).success) {
-          throw new Error((whisperReady as { error?: string }).error || "Whisper service unavailable")
-        }
-      }
-
       if (useLocalBackend && localBackendRef.current) {
         const sessionName = `OpenScribe ${encounter.id}`
         localSessionNameRef.current = sessionName
@@ -1252,6 +1302,43 @@ function HomePageContent() {
                 }}
               >
                 Switch to Local-only
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showMixedRuntimePrompt && processingMode === "mixed" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-background p-6 shadow-2xl">
+            <h3 className="text-lg font-semibold text-foreground">Mixed Mode Not Ready</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {mixedRuntimePromptMessage || "Whisper runtime is not ready yet."}
+            </p>
+            {mixedRuntimePromptCode && (
+              <p className="mt-2 text-xs text-muted-foreground">Code: {mixedRuntimePromptCode}</p>
+            )}
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                className="rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
+                onClick={async () => {
+                  const readiness = await ensureMixedRuntimeReady(true)
+                  if (readiness.ok) {
+                    setShowMixedRuntimePrompt(false)
+                  }
+                }}
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90"
+                onClick={() => {
+                  setShowMixedRuntimePrompt(false)
+                  setShowSettingsDialog(true)
+                }}
+              >
+                Open Settings
               </button>
             </div>
           </div>

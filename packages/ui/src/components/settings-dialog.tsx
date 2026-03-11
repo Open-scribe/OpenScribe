@@ -14,7 +14,7 @@ interface SettingsDialogProps {
   noteLength: NoteLength
   onNoteLengthChange: (length: NoteLength) => void
   processingMode: ProcessingMode
-  onProcessingModeChange: (mode: ProcessingMode) => void
+  onProcessingModeChange: (mode: ProcessingMode) => void | Promise<boolean>
   localBackendAvailable: boolean
   anthropicApiKey: string
   onAnthropicApiKeyChange: (value: string) => void
