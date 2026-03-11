@@ -61,6 +61,8 @@ class TranscriptionSessionStore {
   constructor() {
     // Run cleanup every 5 minutes
     this.cleanupInterval = setInterval(() => this.cleanupOldSessions(), 5 * 60 * 1000)
+    // Do not keep test/CLI processes alive just for periodic cleanup.
+    this.cleanupInterval.unref?.()
   }
 
   private cleanupOldSessions() {
