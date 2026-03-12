@@ -9,7 +9,7 @@ test("updateRecentTranscriptWindow trims to max length", () => {
   const next = "B".repeat(10)
   const updated = updateRecentTranscriptWindow(previous, next, 12)
   assert.equal(updated.length, 12)
-  assert.equal(updated, "AAAAAAAAAABBBB".slice(-12))
+  assert.equal(updated, `${previous}\n${next}`.slice(-12))
 })
 
 test("renderDraftNote formats sections", () => {

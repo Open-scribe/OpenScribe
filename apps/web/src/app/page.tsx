@@ -4,7 +4,6 @@ import { useState, useCallback, useRef, useEffect } from "react"
 import {
   createFinalUploadFailure,
   createPipelineError,
-  isPipelineError,
   toFinalUploadWorkflowError,
   toPipelineError,
   type PipelineError,
@@ -138,7 +137,7 @@ function HomePageContent() {
   const [transcriptionStatus, setTranscriptionStatus] = useState<StepStatus>("pending")
   const [noteGenerationStatus, setNoteGenerationStatus] = useState<StepStatus>("pending")
   const [transcriptionErrorMessage, setTranscriptionErrorMessage] = useState("")
-  const [processingMetrics, setProcessingMetrics] = useState<ProcessingMetrics>({})
+  const [, setProcessingMetrics] = useState<ProcessingMetrics>({})
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [workflowError, setWorkflowError] = useState<PipelineError | null>(null)
 
@@ -400,7 +399,7 @@ function HomePageContent() {
           return false
         }
         return !!result.success
-      } catch (error) {
+      } catch {
         if (showPromptOnFailure) {
           setLastFailureCode("MIC_STREAM_UNAVAILABLE")
           setTranscriptionErrorMessage("Microphone readiness check failed. Please verify permission and retry.")
@@ -889,7 +888,9 @@ function HomePageContent() {
         } else if (parsed.message) {
           streamMessage = parsed.message
         }
-      } catch {}
+      } catch {
+        // Keep default message for non-JSON or malformed payloads.
+      }
     }
     setTranscriptionErrorMessage(streamMessage)
     setWorkflowError(

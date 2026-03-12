@@ -20,29 +20,26 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint:structure
-      - name: Detect lint targets
-        id: lint-targets
+      - name: Run ESLint on changed files
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             BASE_SHA="${{ github.event.pull_request.base.sha }}"
           else
             BASE_SHA="${{ github.event.before }}"
           fi
-          CHANGED_FILES="$(git diff --name-only "$BASE_SHA" "${{ github.sha }}" -- \
+          git diff --name-only "$BASE_SHA" "${{ github.sha }}" -- \
             apps/web/src \
             packages/storage/src \
             packages/pipeline/transcribe/src \
             packages/pipeline/assemble/src \
             scripts/check-no-phi-logs.mjs \
             config/scripts/check-structure.mjs \
-            | tr '\n' ' ')"
-          echo "files=${CHANGED_FILES}" >> "$GITHUB_OUTPUT"
-      - name: Run ESLint on changed files
-        if: steps.lint-targets.outputs.files != ''
-        run: pnpm exec eslint --config config/eslint.config.mjs ${{ steps.lint-targets.outputs.files }}
-      - name: Skip ESLint when no tracked files changed
-        if: steps.lint-targets.outputs.files == ''
-        run: echo "No lint-tracked files changed; skipping eslint."
+            > /tmp/lint-targets.txt
+          if [[ -s /tmp/lint-targets.txt ]]; then
+            xargs pnpm exec eslint --config config/eslint.config.mjs < /tmp/lint-targets.txt
+          else
+            echo "No lint-tracked files changed; skipping eslint."
+          fi
 
   typecheck:
     runs-on: ubuntu-latest

@@ -25,15 +25,7 @@ function isPlaceholderKey(raw: string | undefined): boolean {
 
 function getEncryptionKeySync(): Buffer {
   const configDir = typeof process !== "undefined" && process.env.NODE_ENV === "production"
-    ? (() => {
-        try {
-          const { app } = require("electron")
-          if (app && app.getPath) {
-            return app.getPath("userData")
-          }
-        } catch {}
-        return process.cwd()
-      })()
+    ? getDesktopUserDataPath()
     : process.cwd()
   
   const keyPath = join(configDir, ".encryption-key")
@@ -81,15 +73,7 @@ function getConfigPath(): string {
   // In production (Electron), use userData path
   // In development, use .api-keys.json in project root
   if (typeof process !== "undefined" && process.env.NODE_ENV === "production") {
-    try {
-      // Try to get Electron app userData path
-      const { app } = require("electron")
-      if (app && app.getPath) {
-        return join(app.getPath("userData"), "api-keys.json")
-      }
-    } catch (error) {
-      // Electron not available, fallback to env var
-    }
+    return join(getDesktopUserDataPath(), "api-keys.json")
   }
 
   // Development fallback
@@ -150,7 +134,7 @@ export function getOpenAIApiKey(): string {
     if (config.openaiApiKey) {
       return config.openaiApiKey
     }
-  } catch (error) {
+  } catch {
     // Config file doesn't exist or is invalid, fall through to env var
   }
 
@@ -168,4 +152,22 @@ export function getAnthropicApiKey(): string {
     throw new Error("Missing ANTHROPIC_API_KEY. Please configure your API key in Settings.")
   }
   return status.anthropicApiKey
+}
+
+function getDesktopUserDataPath(): string {
+  const customPath = process.env.OPENSCRIBE_USER_DATA_DIR?.trim()
+  if (customPath) {
+    return customPath
+  }
+
+  const home = process.env.HOME || process.cwd()
+  if (process.platform === "darwin") {
+    return join(home, "Library", "Application Support", "OpenScribe")
+  }
+  if (process.platform === "win32") {
+    const appData = process.env.APPDATA || join(home, "AppData", "Roaming")
+    return join(appData, "OpenScribe")
+  }
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME || join(home, ".config")
+  return join(xdgConfigHome, "OpenScribe")
 }

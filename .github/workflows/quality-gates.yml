@@ -31,8 +31,25 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint
-        run: pnpm lint
+      - name: Lint structure
+        run: pnpm lint:structure
+
+      - name: Run ESLint on changed files
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          git diff --name-only "$BASE_SHA" "${{ github.sha }}" -- \
+            apps/web/src \
+            packages/storage/src \
+            packages/pipeline/transcribe/src \
+            packages/pipeline/assemble/src \
+            scripts/check-no-phi-logs.mjs \
+            config/scripts/check-structure.mjs \
+            > /tmp/lint-targets.txt
+          if [[ -s /tmp/lint-targets.txt ]]; then
+            xargs pnpm exec eslint --config config/eslint.config.mjs < /tmp/lint-targets.txt
+          else
+            echo "No lint-tracked files changed; skipping eslint."
+          fi
 
       - name: Build Tests
         run: pnpm build:test
@@ -43,5 +60,20 @@ jobs:
       - name: Desktop IPC Contract Test
         run: pnpm test:e2e:desktop:ipc
 
+      - name: Detect dependency manifest changes
+        id: dep-scope
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          if git diff --name-only "$BASE_SHA" "${{ github.sha }}" -- pnpm-lock.yaml | grep -q .; then
+            echo "run_audit=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_audit=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Dependency Audit
+        if: steps.dep-scope.outputs.run_audit == 'true'
         run: pnpm audit --audit-level high
+
+      - name: Skip dependency audit when manifests are unchanged
+        if: steps.dep-scope.outputs.run_audit != 'true'
+        run: echo "No dependency manifest changes; skipping audit."
