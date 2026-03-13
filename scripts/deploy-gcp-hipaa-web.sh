@@ -60,10 +60,14 @@ DATABASE_URL_PROXY="$(DATABASE_URL_RAW="$DATABASE_URL_RAW" node -e '
     url.searchParams.delete("sslmode")
     process.stdout.write(url.toString())
   } catch {
-    const match = raw.match(/^postgres(?:ql)?:\\/\\/([^:]+):([^@]+)@\\/([^?]+)(?:\\?.*)?$/i)
-    if (!match) process.exit(1)
-    const [, user, pass, db] = match
-    process.stdout.write(`postgresql://${user}:${pass}@127.0.0.1:5432/${db}`)
+    const separator = "@/";
+    const index = raw.indexOf(separator)
+    if (index <= 0) process.exit(1)
+    const prefix = raw.slice(0, index)
+    const remainder = raw.slice(index + separator.length)
+    const db = remainder.split("?")[0]
+    if (!db) process.exit(1)
+    process.stdout.write(`${prefix}@127.0.0.1:5432/${db}`)
   }
 ')"
 curl -fsSL -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64
