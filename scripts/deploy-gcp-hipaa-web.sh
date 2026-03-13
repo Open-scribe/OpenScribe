@@ -218,7 +218,7 @@ gcloud run deploy "${WEB_SERVICE_NAME}" \
   --cpu 1 \
   --memory 2Gi \
   --min-instances 1 \
-  --max-instances 30 \
+  --max-instances 20 \
   --vpc-connector "${VPC_CONNECTOR}" \
   --vpc-egress private-ranges-only \
   --add-cloudsql-instances "${CLOUD_SQL_INSTANCE}" \
