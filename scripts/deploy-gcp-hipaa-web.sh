@@ -136,10 +136,37 @@ YAML
 gcloud builds submit \
   --config /tmp/cloudbuild-web.yaml \
   --substitutions "_WEB_IMAGE_URI=${WEB_IMAGE_URI},_NEXT_PUBLIC_SECURE_STORAGE_KEY=${NEXT_PUBLIC_SECURE_STORAGE_KEY}" \
-  .
+  --async \
+  --format='value(id)' > /tmp/web_build_id.txt
+WEB_BUILD_ID="$(tr -d '\n' </tmp/web_build_id.txt)"
 
 echo "Building whisper image ${WHISPER_IMAGE_URI}..."
-gcloud builds submit --tag "${WHISPER_IMAGE_URI}" -f docker/whisper-cloudrun.Dockerfile .
+gcloud builds submit \
+  --tag "${WHISPER_IMAGE_URI}" \
+  -f docker/whisper-cloudrun.Dockerfile \
+  --async \
+  --format='value(id)' > /tmp/whisper_build_id.txt
+WHISPER_BUILD_ID="$(tr -d '\n' </tmp/whisper_build_id.txt)"
+
+wait_for_build() {
+  local build_id="$1"
+  while true; do
+    status="$(gcloud builds describe "$build_id" --format='value(status)')"
+    case "$status" in
+      SUCCESS) return 0 ;;
+      FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
+        gcloud builds describe "$build_id"
+        return 1
+        ;;
+      *)
+        sleep 10
+        ;;
+    esac
+  done
+}
+
+wait_for_build "${WEB_BUILD_ID}"
+wait_for_build "${WHISPER_BUILD_ID}"
 
 echo "Deploying whisper service ${WHISPER_SERVICE_NAME}..."
 gcloud run deploy "${WHISPER_SERVICE_NAME}" \
