@@ -66,6 +66,26 @@ async function fetchWithTimeout(fetchFn: typeof fetch, timeoutMs: number, url: s
   }
 }
 
+async function getGoogleIdentityToken(fetchFn: typeof fetch, audience: string): Promise<string> {
+  const metadataUrl =
+    `http://metadata/computeMetadata/v1/instance/service-accounts/default/identity?audience=${encodeURIComponent(audience)}&format=full`
+  const response = await fetchFn(metadataUrl, {
+    method: "GET",
+    headers: {
+      "Metadata-Flavor": "Google",
+    },
+  })
+  if (!response.ok) {
+    const body = await response.text()
+    throw new PipelineStageError("auth_error", `Failed to obtain identity token (${response.status}): ${body}`, false)
+  }
+  const token = (await response.text()).trim()
+  if (!token) {
+    throw new PipelineStageError("auth_error", "Received empty identity token", false)
+  }
+  return token
+}
+
 function shouldRetryStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500
 }
@@ -101,8 +121,14 @@ export async function transcribeWavBuffer(
   const totalAttempts = maxRetries + 1
   for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
     try {
+      const headers: Record<string, string> = {}
+      const authType = (process.env.WHISPER_LOCAL_AUTH_TYPE || "").trim().toLowerCase()
+      if (authType === "identity_token") {
+        headers.Authorization = `Bearer ${await getGoogleIdentityToken(fetchFn, url)}`
+      }
       const response = await fetchWithTimeout(fetchFn, timeoutMs, url, {
         method: "POST",
+        headers,
         body: formData,
       })
 

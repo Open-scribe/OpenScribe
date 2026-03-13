@@ -3,6 +3,8 @@ import { promises as fs } from "fs"
 import path from "path"
 import crypto from "crypto"
 import { writeAuditEntry } from "@storage/audit-log"
+import { isHipaaHostedMode } from "@/lib/hipaa-config"
+import { requireAuthenticatedUser } from "@/lib/auth-guard"
 
 // Encryption configuration
 const ALGORITHM = "aes-256-gcm"
@@ -98,6 +100,16 @@ function getConfigPath(): string {
 }
 
 export async function POST(req: NextRequest) {
+  if (isHipaaHostedMode()) {
+    return NextResponse.json(
+      { error: "API key management is disabled in hosted HIPAA mode" },
+      { status: 410 },
+    )
+  }
+
+  const auth = await requireAuthenticatedUser()
+  if (!auth.ok) return auth.response
+
   try {
     const body = await req.json()
     const { openaiApiKey, anthropicApiKey } = body
@@ -152,6 +164,16 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
+  if (isHipaaHostedMode()) {
+    return NextResponse.json(
+      { error: "API key management is disabled in hosted HIPAA mode" },
+      { status: 410 },
+    )
+  }
+
+  const auth = await requireAuthenticatedUser()
+  if (!auth.ok) return auth.response
+
   try {
     const configPath = getConfigPath()
 

@@ -33,6 +33,7 @@ OpenScribe is a free MIT license open source AI Medical Scribe that helps clinic
 - [Download and Use Desktop](./docs/DOWNLOAD_AND_USE.md)
 - [Desktop Release Runbook](./docs/RELEASE_RUNBOOK.md)
 - [HIPAA GCP Web Hosting](./docs/HIPAA_GCP_WEB_HOSTING.md)
+- [HIPAA Evidence Index](./docs/HIPAA_EVIDENCE_INDEX.md)
 
 
 The current project is not yet HIPAA compliant; however, we recently signed up with Delve and will be HIPAA compliant in the next few weeks.

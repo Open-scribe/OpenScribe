@@ -3,6 +3,8 @@ import { toPipelineError } from "@pipeline-errors"
 import { parseWavHeader, resolveTranscriptionProvider, transcribeWithResolvedProvider } from "@transcription"
 import { transcriptionSessionStore } from "@transcript-assembly"
 import { writeAuditEntry } from "@storage/audit-log"
+import { requireAuthenticatedUser, requireAcceptedTerms } from "@/lib/auth-guard"
+import { logServer } from "@/lib/server-logger"
 
 export const runtime = "nodejs"
 
@@ -70,6 +72,11 @@ function isBlankTranscript(text: string): boolean {
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await requireAuthenticatedUser()
+    if (!auth.ok) return auth.response
+    const terms = await requireAcceptedTerms(auth.userId, req)
+    if (!terms.ok) return terms.response
+
     const formData = await req.formData()
     const sessionId = formData.get("session_id")
     const file = formData.get("file")
@@ -78,7 +85,7 @@ export async function POST(req: NextRequest) {
       return jsonError(400, "validation_error", "Missing session_id or file", false)
     }
 
-    transcriptionSessionStore.setStatus(sessionId, "finalizing")
+    transcriptionSessionStore.setStatus(sessionId, "finalizing", auth.userId)
 
     const arrayBuffer = await file.arrayBuffer()
     let wavInfo
@@ -122,7 +129,7 @@ export async function POST(req: NextRequest) {
           durationMs: wavInfo.durationMs,
         })
       }
-      transcriptionSessionStore.setFinalTranscript(sessionId, transcript)
+      transcriptionSessionStore.setFinalTranscript(sessionId, transcript, auth.userId)
 
       // Audit log: final transcription completed
       await writeAuditEntry({
@@ -142,14 +149,16 @@ export async function POST(req: NextRequest) {
         headers: { "Content-Type": "application/json" },
       })
     } catch (error) {
-      console.error("Final audio processing failed", error)
+      logServer("error", "Final audio processing failed", {
+        code: error instanceof Error ? error.name : "unknown_error",
+      })
       const resolvedProvider = resolveTranscriptionProvider()
       const pipelineError = toPipelineError(error, {
         code: "api_error",
         message: "Transcription API failure",
         recoverable: true,
       })
-      transcriptionSessionStore.emitError(sessionId, pipelineError)
+      transcriptionSessionStore.emitError(sessionId, pipelineError, auth.userId)
 
       // Audit log: final transcription failed
       await writeAuditEntry({
@@ -166,7 +175,9 @@ export async function POST(req: NextRequest) {
       return jsonError(502, pipelineError.code, pipelineError.message, pipelineError.recoverable)
     }
   } catch (error) {
-    console.error("Final recording ingestion failed", error)
+    logServer("error", "Final recording ingestion failed", {
+      code: error instanceof Error ? error.name : "unknown_error",
+    })
     return jsonError(500, "storage_error", "Failed to process final recording", false)
   }
 }

@@ -28,6 +28,22 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
+      - name: Validate required configuration
+        env:
+          GCP_REGION: ${{ secrets.GCP_REGION }}
+          GCP_ARTIFACT_REPO: ${{ secrets.GCP_ARTIFACT_REPO }}
+          GCP_CLOUD_RUN_SERVICE: ${{ secrets.GCP_CLOUD_RUN_SERVICE }}
+          GCP_RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_RUNTIME_SERVICE_ACCOUNT }}
+          GCP_WHISPER_CLOUD_RUN_SERVICE: ${{ secrets.GCP_WHISPER_CLOUD_RUN_SERVICE }}
+          GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT }}
+        run: |
+          for key in GCP_REGION GCP_ARTIFACT_REPO GCP_CLOUD_RUN_SERVICE GCP_RUNTIME_SERVICE_ACCOUNT GCP_WHISPER_CLOUD_RUN_SERVICE GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT; do
+            if [ -z "${!key}" ]; then
+              echo "Missing required secret: $key"
+              exit 1
+            fi
+          done
+
       - name: Enable required APIs
         run: |
           gcloud services enable \
@@ -36,6 +52,12 @@ jobs:
             artifactregistry.googleapis.com \
             secretmanager.googleapis.com \
             logging.googleapis.com
+
+      - name: Ensure required Secret Manager secrets exist
+        run: |
+          for name in ANTHROPIC_API_KEY AUTH_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET DATABASE_URL; do
+            gcloud secrets describe "$name" >/dev/null
+          done
 
       - name: Ensure Artifact Registry repo
         env:
@@ -46,25 +68,71 @@ jobs:
           gcloud artifacts repositories create "$REPO" \
             --repository-format=docker \
             --location="$REGION" \
-            --description="OpenScribe production web images"
+            --description="OpenScribe production images"
 
-      - name: Build container image
+      - name: Build container images
         id: image
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           REGION: ${{ secrets.GCP_REGION }}
           REPO: ${{ secrets.GCP_ARTIFACT_REPO }}
         run: |
-          IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/openscribe-web:${GITHUB_SHA::12}"
-          gcloud builds submit --tag "$IMAGE_URI" -f docker/web-cloudrun.Dockerfile .
-          echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
+          WEB_IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/openscribe-web:${GITHUB_SHA::12}"
+          WHISPER_IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/openscribe-whisper:${GITHUB_SHA::12}"
+          gcloud builds submit --tag "$WEB_IMAGE_URI" -f docker/web-cloudrun.Dockerfile .
+          gcloud builds submit --tag "$WHISPER_IMAGE_URI" -f docker/whisper-cloudrun.Dockerfile .
+          echo "web_image_uri=$WEB_IMAGE_URI" >> "$GITHUB_OUTPUT"
+          echo "whisper_image_uri=$WHISPER_IMAGE_URI" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy Cloud Run
+      - name: Deploy Whisper Cloud Run (private)
+        env:
+          REGION: ${{ secrets.GCP_REGION }}
+          SERVICE_NAME: ${{ secrets.GCP_WHISPER_CLOUD_RUN_SERVICE }}
+          RUNTIME_SA: ${{ secrets.GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT }}
+          IMAGE_URI: ${{ steps.image.outputs.whisper_image_uri }}
+        run: |
+          gcloud run deploy "$SERVICE_NAME" \
+            --image "$IMAGE_URI" \
+            --region "$REGION" \
+            --platform managed \
+            --port 8081 \
+            --service-account "$RUNTIME_SA" \
+            --ingress all \
+            --execution-environment gen2 \
+            --cpu 4 \
+            --memory 8Gi \
+            --min-instances 1 \
+            --max-instances 4 \
+            --set-env-vars "WHISPER_LOCAL_MODEL=tiny.en,WHISPER_LOCAL_BACKEND=cpp,WHISPER_LOCAL_GPU=1" \
+            --no-allow-unauthenticated
+
+      - name: Grant web runtime invoke access to whisper
+        env:
+          REGION: ${{ secrets.GCP_REGION }}
+          WHISPER_SERVICE: ${{ secrets.GCP_WHISPER_CLOUD_RUN_SERVICE }}
+          WEB_RUNTIME_SA: ${{ secrets.GCP_RUNTIME_SERVICE_ACCOUNT }}
+        run: |
+          gcloud run services add-iam-policy-binding "$WHISPER_SERVICE" \
+            --region "$REGION" \
+            --member "serviceAccount:${WEB_RUNTIME_SA}" \
+            --role roles/run.invoker
+
+      - name: Resolve whisper URL
+        id: whisper
+        env:
+          REGION: ${{ secrets.GCP_REGION }}
+          SERVICE_NAME: ${{ secrets.GCP_WHISPER_CLOUD_RUN_SERVICE }}
+        run: |
+          URL="$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Web Cloud Run
         env:
           REGION: ${{ secrets.GCP_REGION }}
           SERVICE_NAME: ${{ secrets.GCP_CLOUD_RUN_SERVICE }}
           RUNTIME_SA: ${{ secrets.GCP_RUNTIME_SERVICE_ACCOUNT }}
-          IMAGE_URI: ${{ steps.image.outputs.image_uri }}
+          IMAGE_URI: ${{ steps.image.outputs.web_image_uri }}
+          WHISPER_URL: ${{ steps.whisper.outputs.url }}
         run: |
           gcloud run deploy "$SERVICE_NAME" \
             --image "$IMAGE_URI" \
@@ -78,12 +146,15 @@ jobs:
             --memory 2Gi \
             --min-instances 1 \
             --max-instances 10 \
-            --set-env-vars "NODE_ENV=production" \
-            --set-secrets "ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest" \
+            --set-env-vars "NODE_ENV=production,HIPAA_HOSTED_MODE=true,NEXT_PUBLIC_HIPAA_HOSTED_MODE=true,TRANSCRIPTION_PROVIDER=whisper_local,WHISPER_LOCAL_URL=${WHISPER_URL}/v1/audio/transcriptions,WHISPER_LOCAL_AUTH_TYPE=identity_token" \
+            --set-secrets "ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,AUTH_SECRET=AUTH_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,DATABASE_URL=DATABASE_URL:latest" \
             --allow-unauthenticated
 
-      - name: Print service URL
+      - name: Print service URLs
         env:
           REGION: ${{ secrets.GCP_REGION }}
-          SERVICE_NAME: ${{ secrets.GCP_CLOUD_RUN_SERVICE }}
-        run: gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)'
+          WEB_SERVICE: ${{ secrets.GCP_CLOUD_RUN_SERVICE }}
+          WHISPER_SERVICE: ${{ secrets.GCP_WHISPER_CLOUD_RUN_SERVICE }}
+        run: |
+          gcloud run services describe "$WEB_SERVICE" --region "$REGION" --format='value(status.url)'
+          gcloud run services describe "$WHISPER_SERVICE" --region "$REGION" --format='value(status.url)'

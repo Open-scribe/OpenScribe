@@ -3,41 +3,45 @@
 This is the shortest path to host OpenScribe web on Google Cloud in a HIPAA-oriented production setup.
 
 ## Scope
-- Runtime: Cloud Run (web app)
-- Image registry: Artifact Registry
-- Secrets: Secret Manager
-- Audit evidence: Cloud Logging sink to a retained Cloud Storage bucket
+- Runtime: Cloud Run web + Cloud Run whisper service
+- Identity: Google OAuth via Auth.js
+- Secrets: Secret Manager only (no in-app key management)
+- Audit evidence: Cloud Logging sink to retained Cloud Storage bucket
 
-## 1. Create production branch
+## 1. Production branch
 ```bash
-git checkout -b codex/prod-hipaa
-git push -u origin codex/prod-hipaa
+git checkout codex/prod-hipaa
+git pull --ff-only
 ```
 
-## 2. One-time project setup + deploy
+## 2. Required Secret Manager secrets
+Create or update:
+- `ANTHROPIC_API_KEY`
+- `AUTH_SECRET`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `DATABASE_URL`
+
+Example:
+```bash
+echo -n "value" | gcloud secrets versions add AUTH_SECRET --data-file=-
+```
+
+## 3. One-time setup + deploy
 From repo root:
 ```bash
-chmod +x scripts/deploy-gcp-hipaa-web.sh
 PROJECT_ID="your-gcp-project-id" \
 REGION="us-central1" \
-SERVICE_NAME="openscribe-web-prod" \
-REPOSITORY="openscribe-web" \
-RUNTIME_SA="openscribe-web-runtime" \
-ALLOW_UNAUTHENTICATED="true" \
+WEB_SERVICE_NAME="openscribe-web-prod" \
+WHISPER_SERVICE_NAME="openscribe-whisper-prod" \
 ./scripts/deploy-gcp-hipaa-web.sh
 ```
 
-## 3. Set required app secret
-Create `ANTHROPIC_API_KEY` in Secret Manager:
-```bash
-echo -n "sk-ant-..." | gcloud secrets create ANTHROPIC_API_KEY --data-file=-
-```
-If the secret exists:
-```bash
-echo -n "sk-ant-..." | gcloud secrets versions add ANTHROPIC_API_KEY --data-file=-
-```
+This deploys:
+- `openscribe-whisper-prod` (private, IAM-invoked only)
+- `openscribe-web-prod` (public sign-in surface, authenticated PHI endpoints)
 
-## 4. Configure GitHub Actions deploy (recommended)
+## 4. GitHub Actions deploy (recommended)
 Workflow file: `.github/workflows/deploy-web-gcp-hipaa.yml`
 
 Set repository secrets:
@@ -47,25 +51,41 @@ Set repository secrets:
 - `GCP_REGION`
 - `GCP_ARTIFACT_REPO`
 - `GCP_CLOUD_RUN_SERVICE`
-- `GCP_RUNTIME_SERVICE_ACCOUNT` (full email, for example `openscribe-web-runtime@PROJECT.iam.gserviceaccount.com`)
+- `GCP_RUNTIME_SERVICE_ACCOUNT`
+- `GCP_WHISPER_CLOUD_RUN_SERVICE`
+- `GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT`
 
 Push to `codex/prod-hipaa` to deploy.
 
-## 5. Audit evidence to retain
-- Cloud Run revision/deploy history
-- Cloud Audit Logs exported via `openscribe-hipaa-audit-sink`
-- CI run logs for each production deployment
-- Service account IAM policy bindings
-- Secret version update history
+## 5. Hosted-mode behavior
+When `HIPAA_HOSTED_MODE=true`:
+- Google sign-in is required.
+- Terms acceptance is required before PHI actions.
+- `/api/settings/api-keys` returns `410` (disabled).
+- Transcription is forced to internal whisper service.
 
-## 6. Minimal release gate
+## 6. Audit evidence to retain
+- Cloud Run revision/deploy history (web + whisper)
+- Cloud Audit Logs export via `openscribe-hipaa-audit-sink`
+- CI run logs for each production deployment
+- IAM policy bindings for runtime/deploy service accounts
+- Secret version history and rotation records
+
+## 7. Apply Cloud Armor rate limits (required for open signup)
+```bash
+PROJECT_ID="your-gcp-project-id" \
+BACKEND_SERVICE="your-https-lb-backend-service" \
+./scripts/setup-cloud-armor-rate-limit.sh
+```
+
+## 8. Minimal release gate
 Before each production merge:
 - `lint` green
 - `typecheck` green
 - `test` green
 - `no-phi-log-check` green
-- Deployment workflow green on `codex/prod-hipaa`
+- `Deploy Web (GCP HIPAA) / deploy` green
 
 ## Notes
 - This is a technical hosting baseline, not legal certification.
-- Keep all PHI-bearing integrations in BAA-covered services only.
+- Open signup + rate limits only is accepted risk for this launch configuration.

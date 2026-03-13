@@ -60,6 +60,9 @@ export async function setApiKeys(keys: Partial<ApiKeys>): Promise<void> {
           body: JSON.stringify(updated),
         })
 
+        if (response.status === 410) {
+          return
+        }
         if (!response.ok) {
           console.error("Failed to sync API keys to server")
         }
