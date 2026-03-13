@@ -80,7 +80,7 @@ jobs:
             try {
               const url = new URL(raw)
               url.hostname = "127.0.0.1"
-              url.port = "5432"
+              url.port = "55432"
               url.searchParams.delete("sslmode")
               process.stdout.write(url.toString())
             } catch {
@@ -91,13 +91,13 @@ jobs:
               const remainder = raw.slice(index + separator.length)
               const db = remainder.split("?")[0]
               if (!db) process.exit(1)
-              process.stdout.write(`${prefix}@127.0.0.1:5432/${db}`)
+              process.stdout.write(`${prefix}@127.0.0.1:55432/${db}`)
             }
           ')"
 
           curl -fsSL -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64
           chmod +x cloud-sql-proxy
-          ./cloud-sql-proxy "$CLOUD_SQL_INSTANCE" --port 5432 >/tmp/cloud-sql-proxy.log 2>&1 &
+          ./cloud-sql-proxy "$CLOUD_SQL_INSTANCE" --port 55432 >/tmp/cloud-sql-proxy.log 2>&1 &
           PROXY_PID=$!
           trap 'kill "$PROXY_PID"' EXIT
           sleep 5
