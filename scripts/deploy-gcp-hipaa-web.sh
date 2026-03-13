@@ -53,11 +53,18 @@ DATABASE_URL_RAW="$(gcloud secrets versions access latest --secret DATABASE_URL 
 DATABASE_URL_PROXY="$(DATABASE_URL_RAW="$DATABASE_URL_RAW" node -e '
   const raw = process.env.DATABASE_URL_RAW?.trim()
   if (!raw) process.exit(1)
-  const url = new URL(raw)
-  url.hostname = "127.0.0.1"
-  url.port = "5432"
-  url.searchParams.delete("sslmode")
-  process.stdout.write(url.toString())
+  try {
+    const url = new URL(raw)
+    url.hostname = "127.0.0.1"
+    url.port = "5432"
+    url.searchParams.delete("sslmode")
+    process.stdout.write(url.toString())
+  } catch {
+    const match = raw.match(/^postgres(?:ql)?:\\/\\/([^:]+):([^@]+)@\\/([^?]+)(?:\\?.*)?$/i)
+    if (!match) process.exit(1)
+    const [, user, pass, db] = match
+    process.stdout.write(`postgresql://${user}:${pass}@127.0.0.1:5432/${db}`)
+  }
 ')"
 curl -fsSL -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64
 chmod +x cloud-sql-proxy
