@@ -129,13 +129,15 @@ steps:
       - docker/web-cloudrun.Dockerfile
       - --build-arg
       - NEXT_PUBLIC_SECURE_STORAGE_KEY=${_NEXT_PUBLIC_SECURE_STORAGE_KEY}
+      - --build-arg
+      - DATABASE_URL=${_DATABASE_URL_BUILD}
       - .
 images:
   - ${_WEB_IMAGE_URI}
 YAML
 gcloud builds submit \
   --config /tmp/cloudbuild-web.yaml \
-  --substitutions "_WEB_IMAGE_URI=${WEB_IMAGE_URI},_NEXT_PUBLIC_SECURE_STORAGE_KEY=${NEXT_PUBLIC_SECURE_STORAGE_KEY}" \
+  --substitutions "_WEB_IMAGE_URI=${WEB_IMAGE_URI},_NEXT_PUBLIC_SECURE_STORAGE_KEY=${NEXT_PUBLIC_SECURE_STORAGE_KEY},_DATABASE_URL_BUILD=postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder" \
   --async \
   --format='value(id)' > /tmp/web_build_id.txt
 WEB_BUILD_ID="$(tr -d '\n' </tmp/web_build_id.txt)"
