@@ -31,9 +31,13 @@ gcloud services enable \
   iam.googleapis.com >/dev/null
 
 echo "Validating required secrets..."
-for name in ANTHROPIC_API_KEY AUTH_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET DATABASE_URL; do
+for name in ANTHROPIC_API_KEY AUTH_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET DATABASE_URL REDIS_URL; do
   gcloud secrets describe "$name" >/dev/null
  done
+
+echo "Running DB migrations..."
+DATABASE_URL="$(gcloud secrets versions access latest --secret DATABASE_URL | tr -d '\n')"
+DATABASE_URL="$DATABASE_URL" pnpm db:migrate
 
 echo "Ensuring Artifact Registry repository exists..."
 if ! gcloud artifacts repositories describe "${REPOSITORY}" --location="${REGION}" >/dev/null 2>&1; then
@@ -117,7 +121,7 @@ gcloud run deploy "${WEB_SERVICE_NAME}" \
   --min-instances 1 \
   --max-instances 10 \
   --set-env-vars "NODE_ENV=production,HIPAA_HOSTED_MODE=true,NEXT_PUBLIC_HIPAA_HOSTED_MODE=true,TRANSCRIPTION_PROVIDER=whisper_local,WHISPER_LOCAL_URL=${WHISPER_URL}/v1/audio/transcriptions,WHISPER_LOCAL_AUTH_TYPE=identity_token" \
-  --set-secrets "ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,AUTH_SECRET=AUTH_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,DATABASE_URL=DATABASE_URL:latest" \
+  --set-secrets "ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,AUTH_SECRET=AUTH_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest" \
   --allow-unauthenticated
 
 WEB_URL="$(gcloud run services describe "${WEB_SERVICE_NAME}" --region "${REGION}" --format='value(status.url)')"

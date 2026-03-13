@@ -13,6 +13,7 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   secret: process.env.AUTH_SECRET,
+  trustHost: true,
   session: {
     strategy: "database",
     maxAge: 8 * 60 * 60,

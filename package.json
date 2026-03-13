@@ -49,7 +49,8 @@
     "test:e2e:desktop:signing": "node scripts/e2e/verify-signing.mjs",
     "download:ollama": "bash local-only/openscribe-backend/scripts/download-ollama.sh",
     "medgemma:scribe": "node scripts/medgemma-scribe.mjs",
-    "medscribe:local": ". .venv-med/bin/activate && python scripts/local_medscribe.py"
+    "medscribe:local": ". .venv-med/bin/activate && python scripts/local_medscribe.py",
+    "db:migrate": "node scripts/run-db-migrations.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
@@ -91,6 +92,7 @@
     "embla-carousel-react": "8.5.1",
     "get-port": "5.1.1",
     "input-otp": "1.4.1",
+    "ioredis": "^5.10.0",
     "lucide-react": "^0.454.0",
     "next": "16.1.5",
     "next-auth": "^4.24.13",

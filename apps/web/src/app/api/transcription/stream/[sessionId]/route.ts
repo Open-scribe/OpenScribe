@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server"
-import { transcriptionSessionStore } from "@transcript-assembly"
+import { subscribeTranscriptionEvents } from "@/lib/transcription-store"
 import { requireAuthenticatedUser, requireAcceptedTerms } from "@/lib/auth-guard"
 
 export const runtime = "nodejs"
@@ -22,7 +22,7 @@ export async function GET(
   let cleanup: (() => void) | null = null
 
   const stream = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       let closed = false
       const sendEvent = (event: { event: string; data: Record<string, unknown> }) => {
         controller.enqueue(formatSseEvent(event.event, event.data))
@@ -30,7 +30,7 @@ export async function GET(
 
       let unsubscribe: (() => void) | null = null
       try {
-        unsubscribe = transcriptionSessionStore.subscribe(sessionId, sendEvent, auth.userId)
+        unsubscribe = await subscribeTranscriptionEvents(sessionId, auth.userId, sendEvent)
       } catch {
         controller.enqueue(formatSseEvent("error", { code: "forbidden", message: "Session access denied" }))
         controller.close()

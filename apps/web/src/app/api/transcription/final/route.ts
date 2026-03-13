@@ -1,7 +1,11 @@
 import type { NextRequest } from "next/server"
 import { toPipelineError } from "@pipeline-errors"
 import { parseWavHeader, resolveTranscriptionProvider, transcribeWithResolvedProvider } from "@transcription"
-import { transcriptionSessionStore } from "@transcript-assembly"
+import {
+  emitTranscriptionError,
+  setTranscriptionFinal,
+  setTranscriptionStatus,
+} from "@/lib/transcription-store"
 import { writeAuditEntry } from "@storage/audit-log"
 import { requireAuthenticatedUser, requireAcceptedTerms } from "@/lib/auth-guard"
 import { logServer } from "@/lib/server-logger"
@@ -85,7 +89,7 @@ export async function POST(req: NextRequest) {
       return jsonError(400, "validation_error", "Missing session_id or file", false)
     }
 
-    transcriptionSessionStore.setStatus(sessionId, "finalizing", auth.userId)
+    await setTranscriptionStatus(sessionId, "finalizing", auth.userId)
 
     const arrayBuffer = await file.arrayBuffer()
     let wavInfo
@@ -112,10 +116,13 @@ export async function POST(req: NextRequest) {
       )
       const latencyMs = Date.now() - startedAtMs
       if (isBlankTranscript(transcript)) {
-        transcriptionSessionStore.emitError(
+        await emitTranscriptionError(
           sessionId,
-          "blank_audio",
-          "No detectable speech signal in the recording. Check microphone input/device and retry.",
+          toPipelineError(
+            new Error("No detectable speech signal in the recording. Check microphone input/device and retry."),
+            { code: "blank_audio", message: "No detectable speech signal in the recording. Check microphone input/device and retry.", recoverable: true },
+          ),
+          auth.userId,
         )
         return jsonError(
           422,
@@ -124,12 +131,12 @@ export async function POST(req: NextRequest) {
         )
       }
       if (likelySilentAudio) {
-        console.warn("[transcription.final] low-energy capture produced transcript", {
+        logServer("warn", "Low-energy capture produced transcript", {
           sessionId,
           durationMs: wavInfo.durationMs,
         })
       }
-      transcriptionSessionStore.setFinalTranscript(sessionId, transcript, auth.userId)
+      await setTranscriptionFinal(sessionId, transcript, auth.userId)
 
       // Audit log: final transcription completed
       await writeAuditEntry({
@@ -158,7 +165,7 @@ export async function POST(req: NextRequest) {
         message: "Transcription API failure",
         recoverable: true,
       })
-      transcriptionSessionStore.emitError(sessionId, pipelineError, auth.userId)
+      await emitTranscriptionError(sessionId, pipelineError, auth.userId)
 
       // Audit log: final transcription failed
       await writeAuditEntry({

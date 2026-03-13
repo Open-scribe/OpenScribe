@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server"
 import { toPipelineError } from "@pipeline-errors"
 import { parseWavHeader, resolveTranscriptionProvider, transcribeWithResolvedProvider } from "@transcription"
-import { transcriptionSessionStore } from "@transcript-assembly"
+import { addTranscriptionSegment, emitTranscriptionError } from "@/lib/transcription-store"
 import { writeAuditEntry } from "@storage/audit-log"
 import { requireAuthenticatedUser, requireAcceptedTerms } from "@/lib/auth-guard"
 import { logServer } from "@/lib/server-logger"
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
       const startedAtMs = Date.now()
       const transcript = await transcribeWithResolvedProvider(Buffer.from(arrayBuffer), `segment-${seqNo}.wav`, resolvedProvider)
       const latencyMs = Date.now() - startedAtMs
-      transcriptionSessionStore.addSegment(sessionId, {
+      await addTranscriptionSegment(sessionId, {
         seqNo,
         startMs,
         endMs,
@@ -156,7 +156,7 @@ export async function POST(req: NextRequest) {
         message: "Transcription API failure",
         recoverable: true,
       })
-      transcriptionSessionStore.emitError(sessionId, pipelineError, auth.userId)
+      await emitTranscriptionError(sessionId, pipelineError, auth.userId)
 
       // Audit log: segment transcription failed
       await writeAuditEntry({

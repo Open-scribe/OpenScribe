@@ -21,6 +21,7 @@ Create or update:
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `DATABASE_URL`
+- `REDIS_URL`
 
 Example:
 ```bash
@@ -40,6 +41,7 @@ WHISPER_SERVICE_NAME="openscribe-whisper-prod" \
 This deploys:
 - `openscribe-whisper-prod` (private, IAM-invoked only)
 - `openscribe-web-prod` (public sign-in surface, authenticated PHI endpoints)
+- DB migrations from `config/db/migrations/*.sql` before service rollout
 
 ## 4. GitHub Actions deploy (recommended)
 Workflow file: `.github/workflows/deploy-web-gcp-hipaa.yml`
