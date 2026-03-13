@@ -138,6 +138,8 @@ jobs:
                 - --build-arg
                 - NEXT_PUBLIC_SECURE_STORAGE_KEY=${_NEXT_PUBLIC_SECURE_STORAGE_KEY}
                 - --build-arg
+                - NEXT_PUBLIC_HIPAA_HOSTED_MODE=${_NEXT_PUBLIC_HIPAA_HOSTED_MODE}
+                - --build-arg
                 - DATABASE_URL=${_DATABASE_URL_BUILD}
                 - .
           images:
@@ -146,7 +148,7 @@ jobs:
 
           gcloud builds submit \
             --config /tmp/cloudbuild-web.yaml \
-            --substitutions "_WEB_IMAGE_URI=${WEB_IMAGE_URI},_NEXT_PUBLIC_SECURE_STORAGE_KEY=${NEXT_PUBLIC_SECURE_STORAGE_KEY},_DATABASE_URL_BUILD=postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder" \
+            --substitutions "_WEB_IMAGE_URI=${WEB_IMAGE_URI},_NEXT_PUBLIC_SECURE_STORAGE_KEY=${NEXT_PUBLIC_SECURE_STORAGE_KEY},_NEXT_PUBLIC_HIPAA_HOSTED_MODE=true,_DATABASE_URL_BUILD=postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder" \
             --async \
             --format='value(id)' > /tmp/web_build_id.txt
           WEB_BUILD_ID="$(tr -d '\n' </tmp/web_build_id.txt)"
