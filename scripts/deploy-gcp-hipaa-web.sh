@@ -12,9 +12,20 @@ WHISPER_SERVICE_NAME="${WHISPER_SERVICE_NAME:-openscribe-whisper-prod}"
 WEB_RUNTIME_SA="${WEB_RUNTIME_SA:-openscribe-web-runtime}"
 WHISPER_RUNTIME_SA="${WHISPER_RUNTIME_SA:-openscribe-whisper-runtime}"
 AUDIT_BUCKET="${AUDIT_BUCKET:-${PROJECT_ID}-openscribe-hipaa-audit-logs}"
+VPC_CONNECTOR="${VPC_CONNECTOR:-openscribe-connector}"
+CLOUD_SQL_INSTANCE="${CLOUD_SQL_INSTANCE:-}"
+NEXT_PUBLIC_SECURE_STORAGE_KEY="${NEXT_PUBLIC_SECURE_STORAGE_KEY:-}"
 
 if [[ -z "${PROJECT_ID}" ]]; then
   echo "PROJECT_ID is required"
+  exit 1
+fi
+if [[ -z "${CLOUD_SQL_INSTANCE}" ]]; then
+  echo "CLOUD_SQL_INSTANCE is required (project:region:instance)"
+  exit 1
+fi
+if [[ -z "${NEXT_PUBLIC_SECURE_STORAGE_KEY}" ]]; then
+  echo "NEXT_PUBLIC_SECURE_STORAGE_KEY is required"
   exit 1
 fi
 
@@ -26,8 +37,10 @@ gcloud services enable \
   run.googleapis.com \
   cloudbuild.googleapis.com \
   artifactregistry.googleapis.com \
+  sqladmin.googleapis.com \
   secretmanager.googleapis.com \
   logging.googleapis.com \
+  vpcaccess.googleapis.com \
   iam.googleapis.com >/dev/null
 
 echo "Validating required secrets..."
@@ -35,9 +48,24 @@ for name in ANTHROPIC_API_KEY AUTH_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET 
   gcloud secrets describe "$name" >/dev/null
  done
 
-echo "Running DB migrations..."
-DATABASE_URL="$(gcloud secrets versions access latest --secret DATABASE_URL | tr -d '\n')"
-DATABASE_URL="$DATABASE_URL" pnpm db:migrate
+echo "Running DB migrations via Cloud SQL Proxy..."
+DATABASE_URL_RAW="$(gcloud secrets versions access latest --secret DATABASE_URL | tr -d '\n')"
+DATABASE_URL_PROXY="$(DATABASE_URL_RAW="$DATABASE_URL_RAW" node -e '
+  const raw = process.env.DATABASE_URL_RAW?.trim()
+  if (!raw) process.exit(1)
+  const url = new URL(raw)
+  url.hostname = "127.0.0.1"
+  url.port = "5432"
+  url.searchParams.delete("sslmode")
+  process.stdout.write(url.toString())
+')"
+curl -fsSL -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64
+chmod +x cloud-sql-proxy
+./cloud-sql-proxy "${CLOUD_SQL_INSTANCE}" --port 5432 >/tmp/cloud-sql-proxy.log 2>&1 &
+PROXY_PID=$!
+trap 'kill "${PROXY_PID}"' EXIT
+sleep 5
+DATABASE_URL="${DATABASE_URL_PROXY}" pnpm db:migrate
 
 echo "Ensuring Artifact Registry repository exists..."
 if ! gcloud artifacts repositories describe "${REPOSITORY}" --location="${REGION}" >/dev/null 2>&1; then
@@ -79,7 +107,25 @@ WEB_IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/openscribe-w
 WHISPER_IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/openscribe-whisper:$(git rev-parse --short HEAD)"
 
 echo "Building web image ${WEB_IMAGE_URI}..."
-gcloud builds submit --tag "${WEB_IMAGE_URI}" -f docker/web-cloudrun.Dockerfile .
+cat >/tmp/cloudbuild-web.yaml <<'YAML'
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_WEB_IMAGE_URI}
+      - -f
+      - docker/web-cloudrun.Dockerfile
+      - --build-arg
+      - NEXT_PUBLIC_SECURE_STORAGE_KEY=${_NEXT_PUBLIC_SECURE_STORAGE_KEY}
+      - .
+images:
+  - ${_WEB_IMAGE_URI}
+YAML
+gcloud builds submit \
+  --config /tmp/cloudbuild-web.yaml \
+  --substitutions "_WEB_IMAGE_URI=${WEB_IMAGE_URI},_NEXT_PUBLIC_SECURE_STORAGE_KEY=${NEXT_PUBLIC_SECURE_STORAGE_KEY}" \
+  .
 
 echo "Building whisper image ${WHISPER_IMAGE_URI}..."
 gcloud builds submit --tag "${WHISPER_IMAGE_URI}" -f docker/whisper-cloudrun.Dockerfile .
@@ -119,7 +165,10 @@ gcloud run deploy "${WEB_SERVICE_NAME}" \
   --cpu 1 \
   --memory 2Gi \
   --min-instances 1 \
-  --max-instances 10 \
+  --max-instances 30 \
+  --vpc-connector "${VPC_CONNECTOR}" \
+  --vpc-egress private-ranges-only \
+  --add-cloudsql-instances "${CLOUD_SQL_INSTANCE}" \
   --set-env-vars "NODE_ENV=production,HIPAA_HOSTED_MODE=true,NEXT_PUBLIC_HIPAA_HOSTED_MODE=true,TRANSCRIPTION_PROVIDER=whisper_local,WHISPER_LOCAL_URL=${WHISPER_URL}/v1/audio/transcriptions,WHISPER_LOCAL_AUTH_TYPE=identity_token" \
   --set-secrets "ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,AUTH_SECRET=AUTH_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest" \
   --allow-unauthenticated

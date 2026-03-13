@@ -42,8 +42,11 @@ jobs:
           GCP_RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_RUNTIME_SERVICE_ACCOUNT }}
           GCP_WHISPER_CLOUD_RUN_SERVICE: ${{ secrets.GCP_WHISPER_CLOUD_RUN_SERVICE }}
           GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT }}
+          GCP_VPC_CONNECTOR: ${{ secrets.GCP_VPC_CONNECTOR }}
+          GCP_CLOUD_SQL_INSTANCE: ${{ secrets.GCP_CLOUD_SQL_INSTANCE }}
+          NEXT_PUBLIC_SECURE_STORAGE_KEY: ${{ secrets.NEXT_PUBLIC_SECURE_STORAGE_KEY }}
         run: |
-          for key in GCP_REGION GCP_ARTIFACT_REPO GCP_CLOUD_RUN_SERVICE GCP_RUNTIME_SERVICE_ACCOUNT GCP_WHISPER_CLOUD_RUN_SERVICE GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT; do
+          for key in GCP_REGION GCP_ARTIFACT_REPO GCP_CLOUD_RUN_SERVICE GCP_RUNTIME_SERVICE_ACCOUNT GCP_WHISPER_CLOUD_RUN_SERVICE GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT GCP_VPC_CONNECTOR GCP_CLOUD_SQL_INSTANCE NEXT_PUBLIC_SECURE_STORAGE_KEY; do
             if [ -z "${!key}" ]; then
               echo "Missing required secret: $key"
               exit 1
@@ -57,7 +60,8 @@ jobs:
             cloudbuild.googleapis.com \
             artifactregistry.googleapis.com \
             secretmanager.googleapis.com \
-            logging.googleapis.com
+            logging.googleapis.com \
+            sqladmin.googleapis.com
 
       - name: Ensure required Secret Manager secrets exist
         run: |
@@ -65,10 +69,29 @@ jobs:
             gcloud secrets describe "$name" >/dev/null
           done
 
-      - name: Run DB migrations
+      - name: Run DB migrations via Cloud SQL Proxy
+        env:
+          CLOUD_SQL_INSTANCE: ${{ secrets.GCP_CLOUD_SQL_INSTANCE }}
         run: |
-          DATABASE_URL="$(gcloud secrets versions access latest --secret DATABASE_URL | tr -d '\n')"
-          DATABASE_URL="$DATABASE_URL" pnpm db:migrate
+          DATABASE_URL_RAW="$(gcloud secrets versions access latest --secret DATABASE_URL | tr -d '\n')"
+          DATABASE_URL_PROXY="$(DATABASE_URL_RAW="$DATABASE_URL_RAW" node -e '
+            const raw = process.env.DATABASE_URL_RAW?.trim()
+            if (!raw) process.exit(1)
+            const url = new URL(raw)
+            url.hostname = "127.0.0.1"
+            url.port = "5432"
+            url.searchParams.delete("sslmode")
+            process.stdout.write(url.toString())
+          ')"
+
+          curl -fsSL -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          ./cloud-sql-proxy "$CLOUD_SQL_INSTANCE" --port 5432 >/tmp/cloud-sql-proxy.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill "$PROXY_PID"' EXIT
+          sleep 5
+
+          DATABASE_URL="$DATABASE_URL_PROXY" pnpm db:migrate
 
       - name: Ensure Artifact Registry repo
         env:
@@ -87,10 +110,31 @@ jobs:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           REGION: ${{ secrets.GCP_REGION }}
           REPO: ${{ secrets.GCP_ARTIFACT_REPO }}
+          NEXT_PUBLIC_SECURE_STORAGE_KEY: ${{ secrets.NEXT_PUBLIC_SECURE_STORAGE_KEY }}
         run: |
           WEB_IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/openscribe-web:${GITHUB_SHA::12}"
           WHISPER_IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/openscribe-whisper:${GITHUB_SHA::12}"
-          gcloud builds submit --tag "$WEB_IMAGE_URI" -f docker/web-cloudrun.Dockerfile .
+
+          cat >/tmp/cloudbuild-web.yaml <<'YAML'
+          steps:
+            - name: gcr.io/cloud-builders/docker
+              args:
+                - build
+                - -t
+                - ${_WEB_IMAGE_URI}
+                - -f
+                - docker/web-cloudrun.Dockerfile
+                - --build-arg
+                - NEXT_PUBLIC_SECURE_STORAGE_KEY=${_NEXT_PUBLIC_SECURE_STORAGE_KEY}
+                - .
+          images:
+            - ${_WEB_IMAGE_URI}
+          YAML
+
+          gcloud builds submit \
+            --config /tmp/cloudbuild-web.yaml \
+            --substitutions "_WEB_IMAGE_URI=${WEB_IMAGE_URI},_NEXT_PUBLIC_SECURE_STORAGE_KEY=${NEXT_PUBLIC_SECURE_STORAGE_KEY}" \
+            .
           gcloud builds submit --tag "$WHISPER_IMAGE_URI" -f docker/whisper-cloudrun.Dockerfile .
           echo "web_image_uri=$WEB_IMAGE_URI" >> "$GITHUB_OUTPUT"
           echo "whisper_image_uri=$WHISPER_IMAGE_URI" >> "$GITHUB_OUTPUT"
@@ -144,6 +188,8 @@ jobs:
           RUNTIME_SA: ${{ secrets.GCP_RUNTIME_SERVICE_ACCOUNT }}
           IMAGE_URI: ${{ steps.image.outputs.web_image_uri }}
           WHISPER_URL: ${{ steps.whisper.outputs.url }}
+          VPC_CONNECTOR: ${{ secrets.GCP_VPC_CONNECTOR }}
+          CLOUD_SQL_INSTANCE: ${{ secrets.GCP_CLOUD_SQL_INSTANCE }}
         run: |
           gcloud run deploy "$SERVICE_NAME" \
             --image "$IMAGE_URI" \
@@ -156,7 +202,10 @@ jobs:
             --cpu 1 \
             --memory 2Gi \
             --min-instances 1 \
-            --max-instances 10 \
+            --max-instances 30 \
+            --vpc-connector "$VPC_CONNECTOR" \
+            --vpc-egress private-ranges-only \
+            --add-cloudsql-instances "$CLOUD_SQL_INSTANCE" \
             --set-env-vars "NODE_ENV=production,HIPAA_HOSTED_MODE=true,NEXT_PUBLIC_HIPAA_HOSTED_MODE=true,TRANSCRIPTION_PROVIDER=whisper_local,WHISPER_LOCAL_URL=${WHISPER_URL}/v1/audio/transcriptions,WHISPER_LOCAL_AUTH_TYPE=identity_token" \
             --set-secrets "ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,AUTH_SECRET=AUTH_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest" \
             --allow-unauthenticated
