@@ -141,9 +141,22 @@ gcloud builds submit \
 WEB_BUILD_ID="$(tr -d '\n' </tmp/web_build_id.txt)"
 
 echo "Building whisper image ${WHISPER_IMAGE_URI}..."
+cat >/tmp/cloudbuild-whisper.yaml <<'YAML'
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_WHISPER_IMAGE_URI}
+      - -f
+      - docker/whisper-cloudrun.Dockerfile
+      - .
+images:
+  - ${_WHISPER_IMAGE_URI}
+YAML
 gcloud builds submit \
-  --tag "${WHISPER_IMAGE_URI}" \
-  -f docker/whisper-cloudrun.Dockerfile \
+  --config /tmp/cloudbuild-whisper.yaml \
+  --substitutions "_WHISPER_IMAGE_URI=${WHISPER_IMAGE_URI}" \
   --async \
   --format='value(id)' > /tmp/whisper_build_id.txt
 WHISPER_BUILD_ID="$(tr -d '\n' </tmp/whisper_build_id.txt)"
