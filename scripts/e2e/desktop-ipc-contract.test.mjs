@@ -2,8 +2,8 @@ import test from "node:test"
 import assert from "node:assert/strict"
 import path from "node:path"
 
-const backendModule = await import(path.resolve("packages/shell/openscribe-backend.js"))
-const { compareVersions, getDownloadUrl, getDownloadUrlFor } = backendModule.default.__test
+const updateUtils = await import(path.resolve("packages/shell/update-utils.js"))
+const { compareVersions, getDownloadUrl, getDownloadUrlFor } = updateUtils.default
 
 test("compareVersions handles semantic ordering", () => {
   assert.equal(compareVersions("1.2.3", "1.2.4"), -1)
