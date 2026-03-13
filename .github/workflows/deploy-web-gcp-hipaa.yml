@@ -44,9 +44,10 @@ jobs:
           GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT }}
           GCP_VPC_CONNECTOR: ${{ secrets.GCP_VPC_CONNECTOR }}
           GCP_CLOUD_SQL_INSTANCE: ${{ secrets.GCP_CLOUD_SQL_INSTANCE }}
+          GCP_NEXTAUTH_URL: ${{ secrets.GCP_NEXTAUTH_URL }}
           NEXT_PUBLIC_SECURE_STORAGE_KEY: ${{ secrets.NEXT_PUBLIC_SECURE_STORAGE_KEY }}
         run: |
-          for key in GCP_REGION GCP_ARTIFACT_REPO GCP_CLOUD_RUN_SERVICE GCP_RUNTIME_SERVICE_ACCOUNT GCP_WHISPER_CLOUD_RUN_SERVICE GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT GCP_VPC_CONNECTOR GCP_CLOUD_SQL_INSTANCE NEXT_PUBLIC_SECURE_STORAGE_KEY; do
+          for key in GCP_REGION GCP_ARTIFACT_REPO GCP_CLOUD_RUN_SERVICE GCP_RUNTIME_SERVICE_ACCOUNT GCP_WHISPER_CLOUD_RUN_SERVICE GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT GCP_VPC_CONNECTOR GCP_CLOUD_SQL_INSTANCE GCP_NEXTAUTH_URL NEXT_PUBLIC_SECURE_STORAGE_KEY; do
             if [ -z "${!key}" ]; then
               echo "Missing required secret: $key"
               exit 1
@@ -247,6 +248,7 @@ jobs:
           WHISPER_URL: ${{ steps.whisper.outputs.url }}
           VPC_CONNECTOR: ${{ secrets.GCP_VPC_CONNECTOR }}
           CLOUD_SQL_INSTANCE: ${{ secrets.GCP_CLOUD_SQL_INSTANCE }}
+          NEXTAUTH_URL: ${{ secrets.GCP_NEXTAUTH_URL }}
         run: |
           gcloud run deploy "$SERVICE_NAME" \
             --image "$IMAGE_URI" \
@@ -263,7 +265,7 @@ jobs:
             --vpc-connector "$VPC_CONNECTOR" \
             --vpc-egress private-ranges-only \
             --add-cloudsql-instances "$CLOUD_SQL_INSTANCE" \
-            --set-env-vars "NODE_ENV=production,HIPAA_HOSTED_MODE=true,NEXT_PUBLIC_HIPAA_HOSTED_MODE=true,TRANSCRIPTION_PROVIDER=whisper_local,WHISPER_LOCAL_URL=${WHISPER_URL}/v1/audio/transcriptions,WHISPER_LOCAL_AUTH_TYPE=identity_token" \
+            --set-env-vars "NODE_ENV=production,HIPAA_HOSTED_MODE=true,NEXT_PUBLIC_HIPAA_HOSTED_MODE=true,NEXTAUTH_URL=${NEXTAUTH_URL},TRANSCRIPTION_PROVIDER=whisper_local,WHISPER_LOCAL_URL=${WHISPER_URL}/v1/audio/transcriptions,WHISPER_LOCAL_AUTH_TYPE=identity_token" \
             --set-secrets "ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,AUTH_SECRET=AUTH_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest" \
             --allow-unauthenticated
 

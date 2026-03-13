@@ -15,6 +15,7 @@ AUDIT_BUCKET="${AUDIT_BUCKET:-${PROJECT_ID}-openscribe-hipaa-audit-logs}"
 VPC_CONNECTOR="${VPC_CONNECTOR:-openscribe-connector}"
 CLOUD_SQL_INSTANCE="${CLOUD_SQL_INSTANCE:-}"
 NEXT_PUBLIC_SECURE_STORAGE_KEY="${NEXT_PUBLIC_SECURE_STORAGE_KEY:-}"
+NEXTAUTH_URL="${NEXTAUTH_URL:-}"
 
 if [[ -z "${PROJECT_ID}" ]]; then
   echo "PROJECT_ID is required"
@@ -26,6 +27,10 @@ if [[ -z "${CLOUD_SQL_INSTANCE}" ]]; then
 fi
 if [[ -z "${NEXT_PUBLIC_SECURE_STORAGE_KEY}" ]]; then
   echo "NEXT_PUBLIC_SECURE_STORAGE_KEY is required"
+  exit 1
+fi
+if [[ -z "${NEXTAUTH_URL}" ]]; then
+  echo "NEXTAUTH_URL is required"
   exit 1
 fi
 
@@ -224,7 +229,7 @@ gcloud run deploy "${WEB_SERVICE_NAME}" \
   --vpc-connector "${VPC_CONNECTOR}" \
   --vpc-egress private-ranges-only \
   --add-cloudsql-instances "${CLOUD_SQL_INSTANCE}" \
-  --set-env-vars "NODE_ENV=production,HIPAA_HOSTED_MODE=true,NEXT_PUBLIC_HIPAA_HOSTED_MODE=true,TRANSCRIPTION_PROVIDER=whisper_local,WHISPER_LOCAL_URL=${WHISPER_URL}/v1/audio/transcriptions,WHISPER_LOCAL_AUTH_TYPE=identity_token" \
+  --set-env-vars "NODE_ENV=production,HIPAA_HOSTED_MODE=true,NEXT_PUBLIC_HIPAA_HOSTED_MODE=true,NEXTAUTH_URL=${NEXTAUTH_URL},TRANSCRIPTION_PROVIDER=whisper_local,WHISPER_LOCAL_URL=${WHISPER_URL}/v1/audio/transcriptions,WHISPER_LOCAL_AUTH_TYPE=identity_token" \
   --set-secrets "ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,AUTH_SECRET=AUTH_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest" \
   --allow-unauthenticated
 
