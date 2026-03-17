@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server"
-import { transcriptionSessionStore } from "@transcript-assembly"
+import { subscribeTranscriptionEvents } from "@/lib/transcription-store"
+import { requireAuthenticatedUser, requireAcceptedTerms } from "@/lib/auth-guard"
 
 export const runtime = "nodejs"
 
@@ -11,18 +12,30 @@ export async function GET(
   req: NextRequest,
   context: { params: Promise<{ sessionId: string }> | { sessionId: string } },
 ) {
+  const auth = await requireAuthenticatedUser()
+  if (!auth.ok) return auth.response
+  const terms = await requireAcceptedTerms(auth.userId, req)
+  if (!terms.ok) return terms.response
+
   const resolvedParams = "then" in context.params ? await context.params : context.params
   const { sessionId } = resolvedParams
   let cleanup: (() => void) | null = null
 
   const stream = new ReadableStream({
-    start(controller) {
+    async start(controller) {
       let closed = false
       const sendEvent = (event: { event: string; data: Record<string, unknown> }) => {
         controller.enqueue(formatSseEvent(event.event, event.data))
       }
 
-      const unsubscribe = transcriptionSessionStore.subscribe(sessionId, sendEvent)
+      let unsubscribe: (() => void) | null = null
+      try {
+        unsubscribe = await subscribeTranscriptionEvents(sessionId, auth.userId, sendEvent)
+      } catch {
+        controller.enqueue(formatSseEvent("error", { code: "forbidden", message: "Session access denied" }))
+        controller.close()
+        return
+      }
       const keepAlive = setInterval(() => {
         controller.enqueue(formatSseEvent("keepalive", { session_id: sessionId, ts: Date.now() }))
       }, 15000)
@@ -34,7 +47,7 @@ export async function GET(
         if (closed) return
         closed = true
         clearInterval(keepAlive)
-        unsubscribe()
+        unsubscribe?.()
         req.signal.removeEventListener("abort", abortHandler)
         try {
           controller.close()

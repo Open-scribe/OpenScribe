@@ -13,6 +13,7 @@ import { useEncounters, EncounterList, IdleView, NewEncounterForm, RecordingView
 import { NoteEditor } from "@note-rendering"
 import { useAudioRecorder, type RecordedSegment, warmupMicrophonePermission, warmupSystemAudioPermission } from "@audio"
 import { useSegmentUpload, type UploadError } from "@transcription";
+import { signIn, signOut, useSession } from "next-auth/react"
 import { WorkflowErrorDisplay } from "./workflow-error-display"
 import { generateClinicalNote } from "@/app/actions"
 import {
@@ -129,6 +130,7 @@ function resolveApiBaseUrl(): string {
 
 function HomePageContent() {
   const { encounters, addEncounter, updateEncounter, deleteEncounter: removeEncounter, refresh } = useEncounters()
+  const hipaaHostedMode = process.env.NEXT_PUBLIC_HIPAA_HOSTED_MODE === "true"
   
   // HIPAA Compliance: Warn if production build is served over HTTP
   const httpsWarning = useHttpsWarning()
@@ -198,6 +200,13 @@ function HomePageContent() {
   useEffect(() => {
     const loadApiKeys = async () => {
       try {
+        if (hipaaHostedMode) {
+          setAnthropicApiKeyInput("")
+          setHasAnthropicApiKey(true)
+          setMixedAuthSource("env")
+          setMixedAuthStatusLoaded(true)
+          return
+        }
         const [keys, mixedAuthStatus] = await Promise.all([getApiKeys(), getMixedModeAuthStatus()])
         const anthropicKey = (keys.anthropicApiKey || "").trim()
         setAnthropicApiKeyInput(anthropicKey)
@@ -216,7 +225,7 @@ function HomePageContent() {
       }
     }
     void loadApiKeys()
-  }, [])
+  }, [hipaaHostedMode])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -278,8 +287,8 @@ function HomePageContent() {
   }, [localBackendAvailable, processingMode])
 
   useEffect(() => {
-    setShowMixedKeyPrompt(mixedAuthStatusLoaded && processingMode === "mixed" && !hasAnthropicApiKey)
-  }, [mixedAuthStatusLoaded, processingMode, hasAnthropicApiKey])
+    setShowMixedKeyPrompt(!hipaaHostedMode && mixedAuthStatusLoaded && processingMode === "mixed" && !hasAnthropicApiKey)
+  }, [mixedAuthStatusLoaded, processingMode, hasAnthropicApiKey, hipaaHostedMode])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -993,7 +1002,7 @@ function HomePageContent() {
           return
         }
       }
-      if (!useLocalBackend && !hasAnthropicApiKey) {
+      if (!useLocalBackend && !hipaaHostedMode && !hasAnthropicApiKey) {
         setShowMixedKeyPrompt(true)
         setShowSettingsDialog(true)
         return
@@ -1719,9 +1728,106 @@ function HomePageContent() {
 }
 
 export default function HomePage() {
+  const hipaaHostedMode = process.env.NEXT_PUBLIC_HIPAA_HOSTED_MODE === "true"
+  const { status } = useSession()
+  const [termsAccepted, setTermsAccepted] = useState(false)
+  const [termsLoading, setTermsLoading] = useState(hipaaHostedMode)
+
+  useEffect(() => {
+    if (!hipaaHostedMode) return
+    if (status !== "authenticated") return
+    void fetch("/api/compliance/session", { method: "GET" })
+  }, [hipaaHostedMode, status])
+
+  useEffect(() => {
+    if (!hipaaHostedMode) return
+    if (status !== "authenticated") return
+    const loadTerms = async () => {
+      try {
+        const response = await fetch("/api/compliance/terms", { method: "GET" })
+        if (!response.ok) {
+          setTermsAccepted(false)
+          return
+        }
+        const payload = (await response.json()) as { accepted?: boolean }
+        setTermsAccepted(!!payload.accepted)
+      } finally {
+        setTermsLoading(false)
+      }
+    }
+    void loadTerms()
+  }, [hipaaHostedMode, status])
+
+  if (hipaaHostedMode && status === "loading") {
+    return <div className="flex h-screen items-center justify-center">Loading session...</div>
+  }
+
+  if (hipaaHostedMode && status !== "authenticated") {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 p-6 text-center">
+        <h1 className="text-2xl font-semibold">OpenScribe HIPAA Hosted</h1>
+        <p className="max-w-md text-sm text-muted-foreground">
+          Sign in with Google to access the hosted clinical workflow.
+        </p>
+        <button
+          type="button"
+          className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90"
+          onClick={() => signIn("google")}
+        >
+          Sign in with Google
+        </button>
+      </div>
+    )
+  }
+
+  if (hipaaHostedMode && termsLoading) {
+    return <div className="flex h-screen items-center justify-center">Loading compliance policy...</div>
+  }
+
+  if (hipaaHostedMode && !termsAccepted) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 p-6 text-center">
+        <h1 className="text-2xl font-semibold">Terms Acceptance Required</h1>
+        <p className="max-w-xl text-sm text-muted-foreground">
+          By continuing, you acknowledge this hosted environment processes PHI and agree to the HIPAA/privacy terms.
+        </p>
+        <button
+          type="button"
+          className="rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background hover:bg-foreground/90"
+          onClick={async () => {
+            const response = await fetch("/api/compliance/terms", { method: "POST" })
+            if (response.ok) setTermsAccepted(true)
+          }}
+        >
+          Accept and Continue
+        </button>
+        <button
+          type="button"
+          className="rounded-full border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
+          onClick={() => signOut({ callbackUrl: "/" })}
+        >
+          Sign out
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <ErrorBoundary>
-      <HomePageContent />
-    </ErrorBoundary>
+    <div className="relative">
+      {hipaaHostedMode && (
+        <div className="absolute right-4 top-4 z-50">
+          <button
+            type="button"
+            className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+            onClick={() => signOut({ callbackUrl: "/" })}
+          >
+            Sign out
+          </button>
+        </div>
+      )}
+      <ErrorBoundary>
+        <HomePageContent />
+      </ErrorBoundary>
+    </div>
   )
 }

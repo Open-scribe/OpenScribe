@@ -2,6 +2,7 @@
 
 ## Protected branch
 - `main`
+- `codex/prod-hipaa`
 
 ## Required settings
 - Pull request required before merge
@@ -23,3 +24,5 @@
 ## Release policy
 - Production deploys are allowed only from signed tags `v*`
 - `main` merges may deploy to non-production environments only
+- `codex/prod-hipaa` is the only branch allowed to deploy to production web hosting
+- Require `Deploy Web (GCP HIPAA) / deploy` to pass before production promotion
