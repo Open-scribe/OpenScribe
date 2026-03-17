@@ -4,7 +4,15 @@
 
 **Goal:** Add a "Push to OpenEMR" button to the note editor that sends a completed clinical note to an OpenEMR patient chart as a FHIR R4 DocumentReference.
 
-**Architecture:** A standalone `openemr-client.ts` module in `apps/web/src/lib/` owns all OpenEMR API logic (token fetch, patient validation, DocumentReference creation). A thin Next.js API route at `/api/integrations/openemr/push` calls that module. The note editor gets a new button wired to that route. The new encounter form gets a required patient ID field, gated on the `NEXT_PUBLIC_OPENEMR_ENABLED` flag.
+**Architecture:** A standalone `openemr-client.ts` module owns all FHIR API logic. A pure `openemr-push-handler.ts` owns request validation and delegation logic (testable without Next.js). The Next.js route is a thin wrapper around the handler. The note editor button uses a pure `buildOpenEMRPushPayload` function for payload construction. All trust boundaries are covered by failing tests before any production code is written.
+
+**TDD Rules (non-negotiable):**
+1. Write the failing test first. Run it. Confirm it fails.
+2. Write the minimal production code to make it pass. Nothing more.
+3. Run the test. Confirm it passes.
+4. Commit. Summarize what changed.
+
+**Trust boundary focus:** Tests specifically cover identity binding (patient ID from input = patient ID sent to FHIR), auth guards (unauthenticated paths never reach OpenEMR), and input validation (malformed inputs are rejected before any OpenEMR call).
 
 **Tech Stack:** Next.js App Router (TypeScript), native `fetch` (Node 18+), FHIR R4, OpenEMR OAuth2 client_credentials, Node.js built-in test runner (`node:test`)
 
@@ -20,26 +28,63 @@
 
 | File | Action | Responsibility |
 |---|---|---|
-| `apps/web/src/lib/openemr-client.ts` | **Create** | OpenEMR token fetch (with cache), patient validation, DocumentReference creation |
-| `apps/web/src/lib/__tests__/openemr-client.test.ts` | **Create** | Unit tests for the client module (mocked fetch) |
-| `apps/web/src/app/api/integrations/openemr/push/route.ts` | **Create** | Thin POST handler: auth guard → parse body → call client → return response |
-| `packages/ui/src/components/new-encounter-form.tsx` | **Modify** | Add conditional required `patient_id` input field |
-| `packages/pipeline/render/src/components/note-editor.tsx` | **Modify** | Add "Push to OpenEMR" button with push states and error display |
 | `apps/web/.env.local.example` | **Modify** | Document the four new env vars |
-| `config/tsconfig.test.json` | **Modify** | Add openemr-client source + test to includes so test compiler picks them up |
+| `config/tsconfig.test.json` | **Modify** | Add all new testable modules to includes |
+| `apps/web/src/lib/openemr-client.ts` | **Create** | Token fetch (with cache + timeout), patient validation, DocumentReference creation |
+| `apps/web/src/lib/__tests__/openemr-client.test.ts` | **Create** | Trust boundary tests: auth chain, identity binding, FHIR payload structure |
+| `apps/web/src/lib/openemr-push-handler.ts` | **Create** | Pure request validation + delegation logic (no Next.js dependency) |
+| `apps/web/src/lib/__tests__/openemr-push-handler.test.ts` | **Create** | Trust boundary tests: input guard, identity binding to client module |
+| `apps/web/src/app/api/integrations/openemr/push/route.ts` | **Create** | Thin POST handler: auth guard → delegate to pure handler |
+| `packages/ui/src/components/new-encounter-form.tsx` | **Modify** | Add conditional required `patient_id` field |
+| `packages/pipeline/render/src/components/note-editor.tsx` | **Modify** | Add "Push to OpenEMR" button, states, error display |
 
 ---
 
-## Chunk 1: OpenEMR Client Module
+## Trust Boundary Map
 
-### Task 1: Update env var documentation
+```
+Browser (untrusted)
+    │
+    ▼  POST /api/integrations/openemr/push
+┌─────────────────────────────────────┐
+│  Next.js Route                      │
+│  ① requireAuthenticatedUser()       │ ← identity check (auth guard)
+│  ② parsePushBody(body)              │ ← input validation (tested pure)
+└─────────────────────────────────────┘
+    │  validated { patientId, noteMarkdown, ... }
+    ▼
+┌─────────────────────────────────────┐
+│  openemr-push-handler.ts            │
+│  ③ pushNoteToOpenEMR(params)        │ ← identity binding: patientId passes through exactly
+└─────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  openemr-client.ts                  │
+│  ④ getAccessToken()                 │ ← credential boundary: creds never leave server
+│  ⑤ validatePatient(token, id)       │ ← patient existence check before write
+│  ⑥ createDocumentReference(...)     │ ← FHIR payload: patient_id bound to subject.reference
+└─────────────────────────────────────┘
+    │
+    ▼
+OpenEMR FHIR API (external)
+```
+
+Circles ①–⑥ are each covered by at least one failing test before implementation.
+
+---
+
+## Chunk 1: Configuration and Test Infrastructure
+
+### Task 1: Document env vars and extend test tsconfig
+
+No production logic. No tests needed. This is build plumbing.
 
 **Files:**
 - Modify: `apps/web/.env.local.example`
+- Modify: `config/tsconfig.test.json`
 
-- [ ] **Step 1: Add OpenEMR vars to the example file**
-
-Append to `apps/web/.env.local.example`:
+- [ ] **Step 1: Append to `.env.local.example`**
 
 ```bash
 # OpenEMR Integration (optional — enables "Push to OpenEMR" in the note editor)
@@ -53,68 +98,51 @@ OPENEMR_CLIENT_SECRET=""
 NEXT_PUBLIC_OPENEMR_ENABLED="false"
 ```
 
-- [ ] **Step 2: Verify `.env.local` is in `.gitignore`**
+- [ ] **Step 2: Confirm `.env.local` is in `.gitignore`**
 
 ```bash
-grep -n "\.env\.local" /Users/sammargolis/projects/apps/OpenScribe/.gitignore
+grep "\.env\.local" /Users/sammargolis/projects/apps/OpenScribe/.gitignore
 ```
 
-Expected: at least one matching line. If missing, add `.env.local` to `.gitignore` before continuing.
+Expected: at least one match. If missing, add `.env.local` before continuing.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: Add new modules to `config/tsconfig.test.json` includes**
 
-```bash
-git add apps/web/.env.local.example
-git commit -m "docs: document OpenEMR env vars in .env.local.example"
-```
-
----
-
-### Task 2: Extend test tsconfig to compile openemr-client
-
-**Files:**
-- Modify: `config/tsconfig.test.json`
-
-- [ ] **Step 1: Add the two new files to the includes array**
-
-In `config/tsconfig.test.json`, add to the `"include"` array:
+Add these four entries to the `"include"` array:
 
 ```json
 "../apps/web/src/lib/openemr-client.ts",
-"../apps/web/src/lib/__tests__/openemr-client.test.ts"
+"../apps/web/src/lib/__tests__/openemr-client.test.ts",
+"../apps/web/src/lib/openemr-push-handler.ts",
+"../apps/web/src/lib/__tests__/openemr-push-handler.test.ts"
 ```
 
-The final include array should look like:
+**Why four specific files, not a glob:** Every other file in `apps/web/src/lib/` imports from `next/server` or `next-auth`, which the NodeNext test compiler cannot resolve. These four are pure Node.js.
 
-```json
-"include": [
-  "../packages/pipeline/eval/src/**/*.ts",
-  "../packages/pipeline/audio-ingest/src/**/*.ts",
-  "../packages/pipeline/transcribe/src/**/*.ts",
-  "../packages/pipeline/assemble/src/**/*.ts",
-  "../packages/pipeline/note-core/src/**/*.ts",
-  "../packages/pipeline/shared/src/**/*.ts",
-  "../packages/pipeline/medgemma-scribe/src/**/*.ts",
-  "../packages/llm/src/**/*.ts",
-  "../packages/llm-medgemma/src/**/*.ts",
-  "../packages/storage/src/**/*.ts",
-  "../apps/web/src/lib/openemr-client.ts",
-  "../apps/web/src/lib/__tests__/openemr-client.test.ts"
-]
-```
-
-**Why only these two files:** The rest of `apps/web/src/lib/` imports from Next.js (`next/server`, `next-auth`) which the NodeNext test compiler cannot resolve. The openemr-client module uses only built-in Node.js APIs.
-
-- [ ] **Step 2: Commit**
+- [ ] **Step 4: Verify existing tests still pass**
 
 ```bash
-git add config/tsconfig.test.json
-git commit -m "build: add openemr-client to test tsconfig includes"
+cd /Users/sammargolis/projects/apps/OpenScribe && pnpm test
 ```
+
+Expected: all existing tests pass, no regressions.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add apps/web/.env.local.example config/tsconfig.test.json
+git commit -m "build: document OpenEMR env vars and extend test tsconfig"
+```
+
+**Summary:** No logic changed. Test infrastructure extended to cover the two new testable modules.
 
 ---
 
-### Task 3: Write failing tests for openemr-client
+## Chunk 2: OpenEMR FHIR Client (trust boundary ④⑤⑥)
+
+### Task 2: Write failing tests for openemr-client
+
+Write ALL tests before any implementation code exists. Run them. Confirm they fail.
 
 **Files:**
 - Create: `apps/web/src/lib/__tests__/openemr-client.test.ts`
@@ -125,14 +153,19 @@ git commit -m "build: add openemr-client to test tsconfig includes"
 // apps/web/src/lib/__tests__/openemr-client.test.ts
 import assert from "node:assert/strict"
 import test from "node:test"
-import { pushNoteToOpenEMR, isOpenEMRConfigured, _resetTokenCacheForTesting } from "../openemr-client.js"
+import {
+  pushNoteToOpenEMR,
+  isOpenEMRConfigured,
+  _resetTokenCacheForTesting,
+} from "../openemr-client.js"
 
-// Helpers
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
 function mockFetch(responses: Array<{ status: number; body: unknown }>) {
-  let callIndex = 0
+  let i = 0
   globalThis.fetch = async (_url: string | URL | Request, _opts?: RequestInit): Promise<Response> => {
-    const resp = responses[callIndex++]
-    if (!resp) throw new Error(`Unexpected fetch call #${callIndex}`)
+    const resp = responses[i++]
+    if (!resp) throw new Error(`Unexpected fetch call #${i}`)
     return {
       ok: resp.status >= 200 && resp.status < 300,
       status: resp.status,
@@ -142,172 +175,208 @@ function mockFetch(responses: Array<{ status: number; body: unknown }>) {
   }
 }
 
-const SAMPLE_PARAMS = {
+const BASE = {
   patientId: "42",
   noteMarkdown: "# Note\nPatient is well.",
   patientName: "Jane Doe",
   visitReason: "problem_visit",
 }
 
-// Ensure env vars are set for the whole file
 process.env.OPENEMR_BASE_URL = "http://localhost:8080"
 process.env.OPENEMR_CLIENT_ID = "test-client"
 process.env.OPENEMR_CLIENT_SECRET = "test-secret"
 
-test("isOpenEMRConfigured returns true when all vars are set", () => {
+// ─── Configuration boundary ─────────────────────────────────────────────────
+
+test("isOpenEMRConfigured: returns true when all three vars are set", () => {
   assert.equal(isOpenEMRConfigured(), true)
 })
 
-test("isOpenEMRConfigured returns false when OPENEMR_BASE_URL is missing", () => {
+test("isOpenEMRConfigured: returns false when OPENEMR_BASE_URL is absent", () => {
   const saved = process.env.OPENEMR_BASE_URL
   delete process.env.OPENEMR_BASE_URL
   assert.equal(isOpenEMRConfigured(), false)
   process.env.OPENEMR_BASE_URL = saved!
 })
 
-test("pushNoteToOpenEMR succeeds on happy path", async () => {
-  _resetTokenCacheForTesting()
-  mockFetch([
-    // Step 1: token endpoint
-    { status: 200, body: { access_token: "tok-123", expires_in: 3600 } },
-    // Step 2: patient validation
-    { status: 200, body: { resourceType: "Patient", id: "42" } },
-    // Step 3: DocumentReference creation
-    { status: 201, body: { resourceType: "DocumentReference", id: "doc-99" } },
-  ])
-
-  const result = await pushNoteToOpenEMR(SAMPLE_PARAMS)
-
-  assert.equal(result.success, true)
-  if (result.success) {
-    assert.equal(result.id, "doc-99")
-  }
-})
-
-test("pushNoteToOpenEMR sends correct DocumentReference payload", async () => {
-  _resetTokenCacheForTesting()
-  let capturedBody: unknown = null
-
-  globalThis.fetch = async (url: string | URL | Request, opts?: RequestInit): Promise<Response> => {
-    const urlStr = typeof url === "string" ? url : url.toString()
-    if (urlStr.includes("DocumentReference") && opts?.method === "POST") {
-      capturedBody = JSON.parse(opts.body as string)
-      return { ok: true, status: 201, json: async () => ({ resourceType: "DocumentReference", id: "doc-1" }), text: async () => "" } as Response
-    }
-    if (urlStr.includes("/oauth2/")) {
-      return { ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 3600 }), text: async () => "" } as Response
-    }
-    return { ok: true, status: 200, json: async () => ({ resourceType: "Patient", id: "42" }), text: async () => "" } as Response
-  }
-
-  await pushNoteToOpenEMR(SAMPLE_PARAMS)
-
-  assert.ok(capturedBody, "DocumentReference payload must be captured")
-  const p = capturedBody as Record<string, unknown>
-
-  // Subject reference must use "Patient/{id}" format
-  assert.deepEqual(p.subject, { reference: "Patient/42" })
-
-  // US Core category must be present
-  const cat = p.category as Array<{ coding: Array<{ code: string }> }>
-  assert.equal(cat[0].coding[0].code, "clinical-note")
-
-  // Content attachment
-  const content = p.content as Array<{ attachment: { contentType: string; data: string; title: string } }>
-  assert.equal(content[0].attachment.contentType, "text/markdown")
-  assert.equal(Buffer.from(content[0].attachment.data, "base64").toString(), SAMPLE_PARAMS.noteMarkdown)
-
-  // Description from visitReason, status current
-  assert.equal(p.description, SAMPLE_PARAMS.visitReason)
-  assert.equal(p.status, "current")
-})
-
-test("pushNoteToOpenEMR reuses cached token on second call", async () => {
-  _resetTokenCacheForTesting()
-  let tokenCalls = 0
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = async (url: string | URL | Request, opts?: RequestInit): Promise<Response> => {
-    const urlStr = typeof url === "string" ? url : url.toString()
-    if (urlStr.includes("/oauth2/")) tokenCalls++
-    // Patient + DocRef succeed
-    return { ok: true, status: urlStr.includes("DocumentReference") ? 201 : 200, json: async () => ({
-      access_token: "tok-cached", expires_in: 3600,
-      resourceType: urlStr.includes("DocumentReference") ? "DocumentReference" : "Patient",
-      id: urlStr.includes("DocumentReference") ? "doc-1" : "42",
-    }), text: async () => "" } as Response
-  }
-
-  await pushNoteToOpenEMR(SAMPLE_PARAMS)  // fetches token
-  await pushNoteToOpenEMR(SAMPLE_PARAMS)  // reuses token
-  globalThis.fetch = originalFetch
-
-  assert.equal(tokenCalls, 1, "Token endpoint should only be called once")
-})
-
-test("pushNoteToOpenEMR returns auth_failure error on 401 from token endpoint", async () => {
-  _resetTokenCacheForTesting()
-  mockFetch([
-    { status: 401, body: { error: "invalid_client" } },
-  ])
-
-  const result = await pushNoteToOpenEMR(SAMPLE_PARAMS)
-
-  assert.equal(result.success, false)
-  if (!result.success) {
-    assert.match(result.error, /authentication failed/i)
-  }
-})
-
-test("pushNoteToOpenEMR returns patient_not_found error on 404 from Patient endpoint", async () => {
-  _resetTokenCacheForTesting()
-  mockFetch([
-    { status: 200, body: { access_token: "tok-123", expires_in: 3600 } },
-    { status: 404, body: { resourceType: "OperationOutcome" } },
-  ])
-
-  const result = await pushNoteToOpenEMR(SAMPLE_PARAMS)
-
-  assert.equal(result.success, false)
-  if (!result.success) {
-    assert.match(result.error, /not found in openemr/i)
-  }
-})
-
-test("pushNoteToOpenEMR returns network error when fetch throws", async () => {
-  _resetTokenCacheForTesting()
-  globalThis.fetch = async () => { throw new Error("fetch failed: ECONNREFUSED") }
-
-  const result = await pushNoteToOpenEMR(SAMPLE_PARAMS)
-
-  assert.equal(result.success, false)
-  if (!result.success) {
-    assert.match(result.error, /could not reach openemr/i)
-  }
-})
-
-test("pushNoteToOpenEMR returns config error when vars are missing", async () => {
+test("pushNoteToOpenEMR: returns failure when not configured", async () => {
   _resetTokenCacheForTesting()
   const saved = process.env.OPENEMR_BASE_URL
   delete process.env.OPENEMR_BASE_URL
 
-  const result = await pushNoteToOpenEMR(SAMPLE_PARAMS)
+  const result = await pushNoteToOpenEMR(BASE)
 
   assert.equal(result.success, false)
   process.env.OPENEMR_BASE_URL = saved!
 })
+
+// ─── Auth boundary (trust boundary ④) ──────────────────────────────────────
+
+test("auth boundary: 401 from token endpoint → auth failure message, no further calls", async () => {
+  _resetTokenCacheForTesting()
+  let callCount = 0
+  globalThis.fetch = async (): Promise<Response> => {
+    callCount++
+    return { ok: false, status: 401, json: async () => ({}), text: async () => "" } as Response
+  }
+
+  const result = await pushNoteToOpenEMR(BASE)
+
+  assert.equal(result.success, false)
+  if (!result.success) assert.match(result.error, /authentication failed/i)
+  assert.equal(callCount, 1, "Must stop after auth failure — no patient or FHIR calls")
+})
+
+test("auth boundary: token is reused on second call (credential not re-sent)", async () => {
+  _resetTokenCacheForTesting()
+  let tokenCalls = 0
+  globalThis.fetch = async (url: string | URL | Request, opts?: RequestInit): Promise<Response> => {
+    const u = typeof url === "string" ? url : url.toString()
+    if (u.includes("/oauth2/")) {
+      tokenCalls++
+      return { ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 3600 }), text: async () => "" } as Response
+    }
+    if (u.includes("DocumentReference")) {
+      return { ok: true, status: 201, json: async () => ({ id: "doc-1" }), text: async () => "" } as Response
+    }
+    return { ok: true, status: 200, json: async () => ({ id: "42" }), text: async () => "" } as Response
+  }
+
+  await pushNoteToOpenEMR(BASE)
+  await pushNoteToOpenEMR(BASE)
+
+  assert.equal(tokenCalls, 1, "Credentials must not be re-sent when token is cached")
+})
+
+// ─── Patient identity boundary (trust boundary ⑤) ──────────────────────────
+
+test("patient boundary: 404 from Patient endpoint → not-found message, no FHIR write", async () => {
+  _resetTokenCacheForTesting()
+  let fhirWriteCalled = false
+  globalThis.fetch = async (url: string | URL | Request): Promise<Response> => {
+    const u = typeof url === "string" ? url : url.toString()
+    if (u.includes("/oauth2/")) return { ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 3600 }), text: async () => "" } as Response
+    if (u.includes("DocumentReference")) { fhirWriteCalled = true; return { ok: true, status: 201, json: async () => ({ id: "x" }), text: async () => "" } as Response }
+    return { ok: false, status: 404, json: async () => ({}), text: async () => "" } as Response
+  }
+
+  const result = await pushNoteToOpenEMR(BASE)
+
+  assert.equal(result.success, false)
+  if (!result.success) assert.match(result.error, /not found in openemr/i)
+  assert.equal(fhirWriteCalled, false, "Must not write DocumentReference for unknown patient")
+})
+
+// ─── Identity binding (trust boundary ⑥) ────────────────────────────────────
+
+test("identity binding: patientId param is bound to DocumentReference subject.reference exactly", async () => {
+  _resetTokenCacheForTesting()
+  let capturedBody: Record<string, unknown> | null = null
+
+  globalThis.fetch = async (url: string | URL | Request, opts?: RequestInit): Promise<Response> => {
+    const u = typeof url === "string" ? url : url.toString()
+    if (u.includes("/oauth2/")) return { ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 3600 }), text: async () => "" } as Response
+    if (u.includes("DocumentReference") && opts?.method === "POST") {
+      capturedBody = JSON.parse(opts.body as string)
+      return { ok: true, status: 201, json: async () => ({ id: "doc-99" }), text: async () => "" } as Response
+    }
+    return { ok: true, status: 200, json: async () => ({ id: "42" }), text: async () => "" } as Response
+  }
+
+  const result = await pushNoteToOpenEMR({ ...BASE, patientId: "42" })
+
+  assert.equal(result.success, true)
+  assert.ok(capturedBody, "DocumentReference payload must be sent")
+  // The patient ID from the request must appear verbatim in the FHIR subject reference
+  assert.deepEqual(capturedBody!.subject, { reference: "Patient/42" })
+})
+
+test("identity binding: noteMarkdown is base64-encoded without alteration", async () => {
+  _resetTokenCacheForTesting()
+  let capturedAttachment: { contentType: string; data: string } | null = null
+
+  globalThis.fetch = async (url: string | URL | Request, opts?: RequestInit): Promise<Response> => {
+    const u = typeof url === "string" ? url : url.toString()
+    if (u.includes("/oauth2/")) return { ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 3600 }), text: async () => "" } as Response
+    if (u.includes("DocumentReference") && opts?.method === "POST") {
+      const body = JSON.parse(opts.body as string) as { content: Array<{ attachment: { contentType: string; data: string } }> }
+      capturedAttachment = body.content[0].attachment
+      return { ok: true, status: 201, json: async () => ({ id: "doc-1" }), text: async () => "" } as Response
+    }
+    return { ok: true, status: 200, json: async () => ({ id: "42" }), text: async () => "" } as Response
+  }
+
+  const note = "# Visit Note\n\nChief complaint: headache."
+  await pushNoteToOpenEMR({ ...BASE, noteMarkdown: note })
+
+  assert.ok(capturedAttachment)
+  assert.equal(capturedAttachment!.contentType, "text/markdown")
+  assert.equal(Buffer.from(capturedAttachment!.data, "base64").toString(), note)
+})
+
+test("identity binding: FHIR payload includes required category and status fields", async () => {
+  _resetTokenCacheForTesting()
+  let capturedBody: Record<string, unknown> | null = null
+
+  globalThis.fetch = async (url: string | URL | Request, opts?: RequestInit): Promise<Response> => {
+    const u = typeof url === "string" ? url : url.toString()
+    if (u.includes("/oauth2/")) return { ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 3600 }), text: async () => "" } as Response
+    if (u.includes("DocumentReference") && opts?.method === "POST") {
+      capturedBody = JSON.parse(opts.body as string)
+      return { ok: true, status: 201, json: async () => ({ id: "doc-1" }), text: async () => "" } as Response
+    }
+    return { ok: true, status: 200, json: async () => ({ id: "42" }), text: async () => "" } as Response
+  }
+
+  await pushNoteToOpenEMR(BASE)
+
+  const p = capturedBody!
+  assert.equal(p.status, "current")
+  const cat = p.category as Array<{ coding: Array<{ code: string }> }>
+  assert.equal(cat[0].coding[0].code, "clinical-note")
+  assert.equal(p.description, BASE.visitReason)
+})
+
+// ─── Network / timeout boundary ─────────────────────────────────────────────
+
+test("network boundary: ECONNREFUSED → 'could not reach' message", async () => {
+  _resetTokenCacheForTesting()
+  globalThis.fetch = async () => { throw new Error("fetch failed: ECONNREFUSED ::1:8080") }
+
+  const result = await pushNoteToOpenEMR(BASE)
+
+  assert.equal(result.success, false)
+  if (!result.success) assert.match(result.error, /could not reach openemr/i)
+})
+
+test("network boundary: timeout (AbortError) → timeout message", async () => {
+  _resetTokenCacheForTesting()
+  globalThis.fetch = async () => {
+    const err = new Error("The operation was aborted")
+    ;(err as NodeJS.ErrnoException).name = "AbortError"
+    throw err
+  }
+
+  const result = await pushNoteToOpenEMR(BASE)
+
+  assert.equal(result.success, false)
+  if (!result.success) assert.match(result.error, /timed out/i)
+})
 ```
 
-- [ ] **Step 2: Confirm tests do not yet compile (openemr-client.ts doesn't exist)**
+- [ ] **Step 2: Run tests — confirm they ALL fail**
 
 ```bash
 cd /Users/sammargolis/projects/apps/OpenScribe && pnpm build:test 2>&1 | grep openemr
 ```
 
-Expected: error about `openemr-client.ts` not found or `_resetTokenCacheForTesting` not exported.
+Expected: compile error — `openemr-client.ts` does not exist yet. This is correct. Do not proceed until you see a failure.
 
 ---
 
-### Task 4: Implement openemr-client.ts to pass tests
+### Task 3: Implement openemr-client.ts to pass all tests
+
+Write the minimal implementation that satisfies the tests above. Nothing extra.
 
 **Files:**
 - Create: `apps/web/src/lib/openemr-client.ts`
@@ -319,19 +388,13 @@ Expected: error about `openemr-client.ts` not found or `_resetTokenCacheForTesti
 
 const FETCH_TIMEOUT_MS = 15_000
 
-// Wraps fetch with a 15s AbortController timeout.
-// On abort, throws AbortError (name === "AbortError").
 function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController()
   const id = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(id))
 }
 
-type TokenCache = {
-  accessToken: string
-  expiresAt: number
-}
-
+type TokenCache = { accessToken: string; expiresAt: number }
 let tokenCache: TokenCache | null = null
 
 function getConfig() {
@@ -347,23 +410,19 @@ export function isOpenEMRConfigured(): boolean {
   return Boolean(baseUrl && clientId && clientSecret)
 }
 
+/** Test-only: reset in-process token cache between test cases. */
 export function _resetTokenCacheForTesting(): void {
   tokenCache = null
 }
 
 async function getAccessToken(): Promise<string> {
   const { baseUrl, clientId, clientSecret } = getConfig()
-  if (!baseUrl || !clientId || !clientSecret) {
-    throw new Error("not_configured")
-  }
+  if (!baseUrl || !clientId || !clientSecret) throw new Error("not_configured")
 
-  // Return cached token if still valid (5-minute early expiry buffer)
   const now = Date.now()
-  if (tokenCache && tokenCache.expiresAt > now + 5 * 60 * 1000) {
-    return tokenCache.accessToken
-  }
+  if (tokenCache && tokenCache.expiresAt > now + 5 * 60 * 1000) return tokenCache.accessToken
 
-  const response = await fetchWithTimeout(`${baseUrl}/oauth2/default/token`, {
+  const res = await fetchWithTimeout(`${baseUrl}/oauth2/default/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -373,26 +432,18 @@ async function getAccessToken(): Promise<string> {
       scope: "system/DocumentReference.write system/Patient.read",
     }).toString(),
   })
+  if (!res.ok) throw new Error("auth_failure")
 
-  if (!response.ok) {
-    throw new Error("auth_failure")
-  }
-
-  const data = (await response.json()) as { access_token: string; expires_in: number }
-  tokenCache = {
-    accessToken: data.access_token,
-    expiresAt: now + data.expires_in * 1000,
-  }
+  const data = (await res.json()) as { access_token: string; expires_in: number }
+  tokenCache = { accessToken: data.access_token, expiresAt: now + data.expires_in * 1000 }
   return tokenCache.accessToken
 }
 
 async function validatePatient(token: string, baseUrl: string, patientId: string): Promise<void> {
-  const response = await fetchWithTimeout(`${baseUrl}/apis/default/fhir/Patient/${patientId}`, {
+  const res = await fetchWithTimeout(`${baseUrl}/apis/default/fhir/Patient/${patientId}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
-  if (!response.ok) {
-    throw new Error("patient_not_found")
-  }
+  if (!res.ok) throw new Error("patient_not_found")
 }
 
 async function createDocumentReference(
@@ -403,50 +454,37 @@ async function createDocumentReference(
   const resource = {
     resourceType: "DocumentReference",
     status: "current",
-    type: {
-      coding: [{ system: "http://loinc.org", code: "34109-9", display: "Note" }],
-    },
-    category: [
-      {
-        coding: [
-          {
-            system: "http://hl7.org/fhir/us/core/CodeSystem/us-core-documentreference-category",
-            code: "clinical-note",
-            display: "Clinical Note",
-          },
-        ],
-      },
-    ],
+    type: { coding: [{ system: "http://loinc.org", code: "34109-9", display: "Note" }] },
+    category: [{
+      coding: [{
+        system: "http://hl7.org/fhir/us/core/CodeSystem/us-core-documentreference-category",
+        code: "clinical-note",
+        display: "Clinical Note",
+      }],
+    }],
     subject: { reference: `Patient/${params.patientId}` },
     date: new Date().toISOString(),
     description: params.visitReason,
-    content: [
-      {
-        attachment: {
-          contentType: "text/markdown",
-          data: Buffer.from(params.noteMarkdown).toString("base64"),
-          title: `Clinical Note — ${params.patientName}`,
-        },
+    content: [{
+      attachment: {
+        contentType: "text/markdown",
+        data: Buffer.from(params.noteMarkdown).toString("base64"),
+        title: `Clinical Note — ${params.patientName}`,
       },
-    ],
+    }],
   }
 
-  const response = await fetchWithTimeout(`${baseUrl}/apis/default/fhir/DocumentReference`, {
+  const res = await fetchWithTimeout(`${baseUrl}/apis/default/fhir/DocumentReference`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/fhir+json",
-    },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/fhir+json" },
     body: JSON.stringify(resource),
   })
-
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(`fhir_error:${response.status}:${errorText.slice(0, 200)}`)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`fhir_error:${res.status}:${text.slice(0, 200)}`)
   }
 
-  const created = (await response.json()) as { id: string }
-  return created.id
+  return ((await res.json()) as { id: string }).id
 }
 
 export type PushNoteParams = {
@@ -455,14 +493,11 @@ export type PushNoteParams = {
   patientName: string
   visitReason: string
 }
-
 export type PushNoteResult = { success: true; id: string } | { success: false; error: string }
 
 export async function pushNoteToOpenEMR(params: PushNoteParams): Promise<PushNoteResult> {
   const { baseUrl } = getConfig()
-  if (!isOpenEMRConfigured()) {
-    return { success: false, error: "OpenEMR is not configured." }
-  }
+  if (!isOpenEMRConfigured()) return { success: false, error: "OpenEMR is not configured." }
 
   try {
     const token = await getAccessToken()
@@ -470,159 +505,338 @@ export async function pushNoteToOpenEMR(params: PushNoteParams): Promise<PushNot
     const id = await createDocumentReference(token, baseUrl, params)
     return { success: true, id }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
+    const e = error instanceof Error ? error : new Error(String(error))
 
-    if (error instanceof Error && error.name === "AbortError") {
-      return {
-        success: false,
-        error: `OpenEMR push timed out after ${FETCH_TIMEOUT_MS / 1000}s. Check that the server is responding at ${baseUrl}.`,
-      }
+    if (e.name === "AbortError") {
+      return { success: false, error: `OpenEMR push timed out after ${FETCH_TIMEOUT_MS / 1000}s. Check that the server is responding at ${baseUrl}.` }
     }
-    if (message === "auth_failure") {
-      return {
-        success: false,
-        error: "OpenEMR authentication failed. Check OPENEMR_CLIENT_ID and OPENEMR_CLIENT_SECRET.",
-      }
+    if (e.message === "auth_failure") {
+      return { success: false, error: "OpenEMR authentication failed. Check OPENEMR_CLIENT_ID and OPENEMR_CLIENT_SECRET." }
     }
-    if (message === "patient_not_found") {
-      return {
-        success: false,
-        error: `Patient ID ${params.patientId} was not found in OpenEMR. Verify the ID and try again.`,
-      }
+    if (e.message === "patient_not_found") {
+      return { success: false, error: `Patient ID ${params.patientId} was not found in OpenEMR. Verify the ID and try again.` }
     }
-    // Internal sentinel strings ("auth_failure", "patient_not_found", "fhir_error:") are
-    // caught above and mapped to the four spec-prescribed user-facing messages below.
-    // Network errors from fetch use raw Node/fetch error text, detected by substring match.
-    if (
-      message.includes("fetch failed") ||
-      message.includes("ECONNREFUSED") ||
-      message.includes("ENOTFOUND")
-    ) {
-      // → spec message: "Could not reach OpenEMR at {URL}. Check that the server is running."
-      return {
-        success: false,
-        error: `Could not reach OpenEMR at ${baseUrl}. Check that the server is running.`,
-      }
+    if (e.message.includes("fetch failed") || e.message.includes("ECONNREFUSED") || e.message.includes("ENOTFOUND")) {
+      return { success: false, error: `Could not reach OpenEMR at ${baseUrl}. Check that the server is running.` }
     }
-    if (message.startsWith("fhir_error:")) {
-      // → spec message: "OpenEMR push failed: {error message from server}"
-      const statusCode = message.split(":")[1]
-      return { success: false, error: `OpenEMR push failed: FHIR error ${statusCode}` }
+    if (e.message.startsWith("fhir_error:")) {
+      return { success: false, error: `OpenEMR push failed: FHIR error ${e.message.split(":")[1]}` }
     }
-
-    // Catch-all → spec message: "OpenEMR push failed: {error message from server}"
-    return { success: false, error: `OpenEMR push failed: ${message}` }
+    return { success: false, error: `OpenEMR push failed: ${e.message}` }
   }
 }
 ```
 
-- [ ] **Step 2: Build the tests**
+- [ ] **Step 2: Build tests**
 
 ```bash
-cd /Users/sammargolis/projects/apps/OpenScribe && pnpm build:test 2>&1 | tail -20
+cd /Users/sammargolis/projects/apps/OpenScribe && pnpm build:test 2>&1 | tail -10
 ```
 
 Expected: compilation succeeds with no errors.
 
-- [ ] **Step 3: Run the tests**
+- [ ] **Step 3: Run tests — confirm they ALL pass**
 
 ```bash
-cd /Users/sammargolis/projects/apps/OpenScribe && node --test build/tests-dist/web/src/lib/__tests__/openemr-client.test.js
+cd /Users/sammargolis/projects/apps/OpenScribe && node --test build/tests-dist/web/src/lib/__tests__/openemr-client.test.js 2>&1
 ```
 
-Expected: all 6 tests pass (✓ `isOpenEMRConfigured returns true…` etc.)
+Expected: all 11 tests pass. If any fail, fix the implementation (not the tests) before continuing.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add apps/web/src/lib/openemr-client.ts apps/web/src/lib/__tests__/openemr-client.test.ts
-git commit -m "feat: add OpenEMR FHIR client module with tests"
+git commit -m "feat(openemr): FHIR client module — 11 trust boundary tests passing"
 ```
+
+**Summary of what changed:** `openemr-client.ts` created. 11 tests pass covering: configuration boundary, auth guard (token not re-sent on cache hit, stops on 401), patient identity boundary (no FHIR write on 404), identity binding (patientId → subject.reference, noteMarkdown → base64 attachment, category + status required), network/timeout errors. No other files changed.
 
 ---
 
-## Chunk 2: API Route + UI
+## Chunk 3: Route Handler (trust boundary ①②③)
 
-### Task 5: Push API route
+### Task 4: Write failing tests for the pure push handler
+
+The Next.js route imports from `next/server` and cannot be compiled by the test runner. Extract all testable logic into `openemr-push-handler.ts` (pure Node.js). The route becomes a 10-line wrapper. Write tests first.
+
+**Trust boundaries tested here:**
+- ① Auth identity check fires before any call to `pushNoteToOpenEMR`
+- ② Input validation: missing `patientId` or `noteMarkdown` → rejected before any OpenEMR call
+- ③ Identity binding: request body fields pass through to `pushNoteToOpenEMR` without transformation
 
 **Files:**
+- Create: `apps/web/src/lib/__tests__/openemr-push-handler.test.ts`
+
+- [ ] **Step 1: Create the test file**
+
+```typescript
+// apps/web/src/lib/__tests__/openemr-push-handler.test.ts
+import assert from "node:assert/strict"
+import test from "node:test"
+import { handlePushRequest } from "../openemr-push-handler.js"
+import type { PushNoteResult } from "../openemr-client.js"
+
+// ─── Minimal mock for pushNoteToOpenEMR ─────────────────────────────────────
+
+type PushFn = (params: {
+  patientId: string
+  noteMarkdown: string
+  patientName: string
+  visitReason: string
+}) => Promise<PushNoteResult>
+
+const successPush: PushFn = async () => ({ success: true, id: "doc-1" })
+const failPush: PushFn = async () => ({ success: false, error: "auth failed" })
+
+// ─── Auth boundary (trust boundary ①) ──────────────────────────────────────
+
+test("auth boundary: unauthenticated request returns 401 without calling pushFn", async () => {
+  let pushCalled = false
+  const trackingPush: PushFn = async (p) => { pushCalled = true; return successPush(p) }
+
+  const result = await handlePushRequest(
+    { isAuthenticated: false },
+    { patientId: "42", noteMarkdown: "note", patientName: "Jane", visitReason: "visit" },
+    trackingPush
+  )
+
+  assert.equal(result.status, 401)
+  assert.equal(pushCalled, false, "pushNoteToOpenEMR must not be called for unauthenticated requests")
+})
+
+test("auth boundary: authenticated request proceeds past auth check", async () => {
+  const result = await handlePushRequest(
+    { isAuthenticated: true },
+    { patientId: "42", noteMarkdown: "note", patientName: "Jane", visitReason: "visit" },
+    successPush
+  )
+
+  assert.equal(result.status, 200)
+})
+
+// ─── Input validation (trust boundary ②) ────────────────────────────────────
+
+test("input guard: missing patientId returns 400 without calling pushFn", async () => {
+  let pushCalled = false
+  const trackingPush: PushFn = async (p) => { pushCalled = true; return successPush(p) }
+
+  const result = await handlePushRequest(
+    { isAuthenticated: true },
+    { patientId: "", noteMarkdown: "note", patientName: "Jane", visitReason: "visit" },
+    trackingPush
+  )
+
+  assert.equal(result.status, 400)
+  assert.equal(pushCalled, false, "pushNoteToOpenEMR must not be called with missing patientId")
+})
+
+test("input guard: missing noteMarkdown returns 400 without calling pushFn", async () => {
+  let pushCalled = false
+  const trackingPush: PushFn = async (p) => { pushCalled = true; return successPush(p) }
+
+  const result = await handlePushRequest(
+    { isAuthenticated: true },
+    { patientId: "42", noteMarkdown: "", patientName: "Jane", visitReason: "visit" },
+    trackingPush
+  )
+
+  assert.equal(result.status, 400)
+  assert.equal(pushCalled, false, "pushNoteToOpenEMR must not be called with empty noteMarkdown")
+})
+
+test("input guard: null body returns 400 without calling pushFn", async () => {
+  let pushCalled = false
+  const trackingPush: PushFn = async (p) => { pushCalled = true; return successPush(p) }
+
+  const result = await handlePushRequest(
+    { isAuthenticated: true },
+    null,
+    trackingPush
+  )
+
+  assert.equal(result.status, 400)
+  assert.equal(pushCalled, false)
+})
+
+// ─── Identity binding (trust boundary ③) ────────────────────────────────────
+
+test("identity binding: patientId from request body passes to pushFn unchanged", async () => {
+  let capturedParams: Parameters<PushFn>[0] | null = null
+  const capturingPush: PushFn = async (p) => { capturedParams = p; return { success: true, id: "x" } }
+
+  await handlePushRequest(
+    { isAuthenticated: true },
+    { patientId: "patient-42", noteMarkdown: "note text", patientName: "Jane Doe", visitReason: "consult" },
+    capturingPush
+  )
+
+  assert.ok(capturedParams)
+  assert.equal(capturedParams!.patientId, "patient-42")
+  assert.equal(capturedParams!.noteMarkdown, "note text")
+  assert.equal(capturedParams!.patientName, "Jane Doe")
+  assert.equal(capturedParams!.visitReason, "consult")
+})
+
+// ─── Response shape ──────────────────────────────────────────────────────────
+
+test("response: success from pushFn → status 200 with id", async () => {
+  const result = await handlePushRequest(
+    { isAuthenticated: true },
+    { patientId: "42", noteMarkdown: "note", patientName: "Jane", visitReason: "visit" },
+    async () => ({ success: true, id: "doc-99" })
+  )
+
+  assert.equal(result.status, 200)
+  assert.deepEqual(result.json, { success: true, id: "doc-99" })
+})
+
+test("response: failure from pushFn → status 500 with error", async () => {
+  const result = await handlePushRequest(
+    { isAuthenticated: true },
+    { patientId: "42", noteMarkdown: "note", patientName: "Jane", visitReason: "visit" },
+    async () => ({ success: false, error: "Patient not found" })
+  )
+
+  assert.equal(result.status, 500)
+  assert.deepEqual(result.json, { success: false, error: "Patient not found" })
+})
+```
+
+- [ ] **Step 2: Run tests — confirm they fail**
+
+```bash
+cd /Users/sammargolis/projects/apps/OpenScribe && pnpm build:test 2>&1 | grep push-handler
+```
+
+Expected: compile error — `openemr-push-handler.ts` does not exist yet. Correct. Do not proceed until confirmed.
+
+---
+
+### Task 5: Implement openemr-push-handler.ts and the API route
+
+Write the minimal code to pass the handler tests, then wrap it in a route.
+
+**Files:**
+- Create: `apps/web/src/lib/openemr-push-handler.ts`
 - Create: `apps/web/src/app/api/integrations/openemr/push/route.ts`
 
-- [ ] **Step 1: Create the route**
+- [ ] **Step 1: Create the pure handler**
+
+```typescript
+// apps/web/src/lib/openemr-push-handler.ts
+import type { PushNoteParams, PushNoteResult } from "./openemr-client.js"
+
+type AuthContext = { isAuthenticated: boolean }
+type PushFn = (params: PushNoteParams) => Promise<PushNoteResult>
+type HandlerResult = { status: number; json: unknown }
+
+export async function handlePushRequest(
+  auth: AuthContext,
+  body: unknown,
+  push: PushFn
+): Promise<HandlerResult> {
+  if (!auth.isAuthenticated) {
+    return { status: 401, json: { success: false, error: "Unauthorized" } }
+  }
+
+  if (!body || typeof body !== "object") {
+    return { status: 400, json: { success: false, error: "Invalid request body" } }
+  }
+
+  const b = body as Record<string, unknown>
+  const patientId = typeof b.patientId === "string" ? b.patientId.trim() : ""
+  const noteMarkdown = typeof b.noteMarkdown === "string" ? b.noteMarkdown.trim() : ""
+
+  if (!patientId || !noteMarkdown) {
+    return { status: 400, json: { success: false, error: "patientId and noteMarkdown are required" } }
+  }
+
+  const result = await push({
+    patientId,
+    noteMarkdown,
+    patientName: typeof b.patientName === "string" ? b.patientName : "",
+    visitReason: typeof b.visitReason === "string" ? b.visitReason : "",
+  })
+
+  return { status: result.success ? 200 : 500, json: result }
+}
+```
+
+- [ ] **Step 2: Build and run handler tests — confirm they all pass**
+
+```bash
+cd /Users/sammargolis/projects/apps/OpenScribe && pnpm build:test 2>&1 | tail -5 && node --test build/tests-dist/web/src/lib/__tests__/openemr-push-handler.test.js
+```
+
+Expected: all 8 tests pass. If any fail, fix the handler before continuing.
+
+- [ ] **Step 3: Create the thin Next.js route wrapper**
 
 ```typescript
 // apps/web/src/app/api/integrations/openemr/push/route.ts
 import { NextRequest, NextResponse } from "next/server"
 import { requireAuthenticatedUser } from "@/lib/auth-guard"
 import { pushNoteToOpenEMR } from "@/lib/openemr-client"
+import { handlePushRequest } from "@/lib/openemr-push-handler"
 
 export async function POST(req: NextRequest) {
   const auth = await requireAuthenticatedUser()
-  if (!auth.ok) return auth.response
+  let body: unknown
+  try { body = await req.json() } catch { body = null }
 
-  let body: {
-    encounterId?: string
-    patientId?: string
-    noteMarkdown?: string
-    patientName?: string
-    visitReason?: string
-  }
+  const result = await handlePushRequest(
+    { isAuthenticated: auth.ok },
+    body,
+    pushNoteToOpenEMR
+  )
 
-  try {
-    body = await req.json()
-  } catch {
-    return NextResponse.json({ success: false, error: "Invalid request body" }, { status: 400 })
-  }
-
-  // encounterId is accepted for API contract completeness but not forwarded —
-  // the openemr-client module does not need it (DocumentReference has no OpenScribe encounter reference)
-  const { patientId, noteMarkdown, patientName, visitReason } = body
-
-  if (!patientId || !noteMarkdown) {
-    return NextResponse.json(
-      { success: false, error: "patientId and noteMarkdown are required" },
-      { status: 400 }
-    )
-  }
-
-  const result = await pushNoteToOpenEMR({
-    patientId,
-    noteMarkdown,
-    patientName: patientName ?? "",
-    visitReason: visitReason ?? "",
-  })
-
-  return NextResponse.json(result, { status: result.success ? 200 : 500 })
+  if (!auth.ok && !result) return auth.response
+  return NextResponse.json(result.json, { status: result.status })
 }
 ```
 
-- [ ] **Step 2: Smoke-test the route compiles (TypeScript check)**
+- [ ] **Step 4: TypeScript check on the route**
 
 ```bash
-cd /Users/sammargolis/projects/apps/OpenScribe && npx tsc --noEmit --project apps/web/tsconfig.json 2>&1 | grep openemr
+cd /Users/sammargolis/projects/apps/OpenScribe && npx tsc --noEmit --project apps/web/tsconfig.json 2>&1 | grep -i openemr
 ```
 
-Expected: no errors for openemr files.
+Expected: no errors.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/app/api/integrations/openemr/push/route.ts
-git commit -m "feat: add POST /api/integrations/openemr/push route"
+git add apps/web/src/lib/openemr-push-handler.ts apps/web/src/lib/__tests__/openemr-push-handler.test.ts apps/web/src/app/api/integrations/openemr/push/route.ts
+git commit -m "feat(openemr): push handler + API route — 8 trust boundary tests passing"
 ```
+
+**Summary of what changed:** `openemr-push-handler.ts` created with `handlePushRequest` — a pure function that takes auth context, body, and push function as arguments. 8 tests pass covering: auth guard stops unauthenticated calls, input guard stops missing fields, identity binding passes params unchanged. Route is a thin wrapper delegating to the handler.
 
 ---
 
+## Chunk 4: Form and UI
+
 ### Task 6: New encounter form — conditional patient_id field
+
+The form validation logic is simple enough to test through manual verification. The key trust boundary — "OPENEMR_ENABLED=true AND blank patientId blocks submission" — is best verified by running the app. There is no extractable pure logic that would benefit from a unit test beyond what's already covered in the handler tests.
 
 **Files:**
 - Modify: `packages/ui/src/components/new-encounter-form.tsx`
 
-- [ ] **Step 1: Add state + conditional field to the form**
+- [ ] **Step 1: Run the app and verify current behavior (baseline)**
 
-The `NEXT_PUBLIC_OPENEMR_ENABLED` env var is inlined at build time by Next.js. Read it as `process.env.NEXT_PUBLIC_OPENEMR_ENABLED === "true"`.
+```bash
+cd /Users/sammargolis/projects/apps/OpenScribe && pnpm dev &
+```
 
-Replace the current `NewEncounterForm` component (full file rewrite):
+Open `http://localhost:3001`. Click "New Encounter". Confirm: no patient ID field exists today. This is the before state.
+
+Kill the server: `kill %1`
+
+- [ ] **Step 2: Write the minimal change**
+
+Replace `new-encounter-form.tsx` with:
 
 ```typescript
 "use client"
@@ -645,6 +859,10 @@ const VISIT_TYPE_OPTIONS = [
   { label: "Consult Note", value: "consult_note" },
 ]
 
+// Build-time constant — inlined by Next.js webpack. Changing requires a rebuild.
+// Intentionally duplicated from note-editor.tsx (both are build-time constants in
+// separate packages; a shared constant would require a new cross-package export for
+// a single boolean — not worth the abstraction).
 const OPENEMR_ENABLED = process.env.NEXT_PUBLIC_OPENEMR_ENABLED === "true"
 
 export function NewEncounterForm({ onStart, onCancel }: NewEncounterFormProps) {
@@ -659,11 +877,7 @@ export function NewEncounterForm({ onStart, onCancel }: NewEncounterFormProps) {
       setPatientIdError("OpenEMR Patient ID is required")
       return
     }
-    onStart({
-      patient_name: patientName,
-      patient_id: patientId,
-      visit_reason: visitType,
-    })
+    onStart({ patient_name: patientName, patient_id: patientId, visit_reason: visitType })
   }
 
   return (
@@ -718,24 +932,19 @@ export function NewEncounterForm({ onStart, onCancel }: NewEncounterFormProps) {
             onChange={(e) => setVisitType(e.target.value)}
             className="w-full rounded-xl border border-border bg-secondary px-4 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {VISIT_TYPE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
+            {VISIT_TYPE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
         </div>
 
         <div className="flex gap-3 pt-4">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={onCancel}
-            className="flex-1 rounded-full text-muted-foreground hover:text-foreground"
-          >
+          <Button type="button" variant="ghost" onClick={onCancel}
+            className="flex-1 rounded-full text-muted-foreground hover:text-foreground">
             Cancel
           </Button>
-          <Button type="submit" className="flex-1 rounded-full bg-foreground text-background hover:bg-foreground/90">
+          <Button type="submit"
+            className="flex-1 rounded-full bg-foreground text-background hover:bg-foreground/90">
             <Mic className="mr-2 h-4 w-4" />
             Start Recording
           </Button>
@@ -746,22 +955,32 @@ export function NewEncounterForm({ onStart, onCancel }: NewEncounterFormProps) {
 }
 ```
 
-- [ ] **Step 2: Manual verification (start dev server)**
+- [ ] **Step 3: Start dev server and verify manually**
 
 ```bash
 cd /Users/sammargolis/projects/apps/OpenScribe && pnpm dev &
 ```
 
-Open `http://localhost:3001`, click "New Encounter". Verify:
-- Without `NEXT_PUBLIC_OPENEMR_ENABLED=true`: no patient ID field appears
-- With `NEXT_PUBLIC_OPENEMR_ENABLED=true` (set in `.env.local` + rebuild): field appears, submitting blank shows inline error
+**Without flag set (current `.env.local`):** Open `http://localhost:3001`, click "New Encounter".
+- ✓ No patient ID field appears
+- ✓ Form submits as before
 
-- [ ] **Step 3: Kill dev server, commit**
+**With flag set:** Add `NEXT_PUBLIC_OPENEMR_ENABLED=true` to `.env.local`, kill server, restart.
+- ✓ "OpenEMR Patient ID" field appears
+- ✓ Submitting blank shows: "OpenEMR Patient ID is required"
+- ✓ Entering a value clears the error
+- ✓ Form submits with the entered ID
+
+Kill server: `kill %1`
+
+- [ ] **Step 4: Commit**
 
 ```bash
-kill %1 2>/dev/null; git add packages/ui/src/components/new-encounter-form.tsx
-git commit -m "feat: add required OpenEMR patient ID field to encounter form (gated on NEXT_PUBLIC_OPENEMR_ENABLED)"
+git add packages/ui/src/components/new-encounter-form.tsx
+git commit -m "feat(openemr): conditional required patient ID field in encounter form"
 ```
+
+**Summary of what changed:** `new-encounter-form.tsx` now conditionally renders an "OpenEMR Patient ID" input when `NEXT_PUBLIC_OPENEMR_ENABLED=true`. Field is required — blank submission shows inline error. When flag is false, form is unchanged. `patient_id` now passes the entered value (was hardcoded `""`).
 
 ---
 
@@ -770,20 +989,17 @@ git commit -m "feat: add required OpenEMR patient ID field to encounter form (ga
 **Files:**
 - Modify: `packages/pipeline/render/src/components/note-editor.tsx`
 
-- [ ] **Step 1: Add the Upload icon import**
-
-In the imports line (line 9), add `Upload` to the lucide-react destructure:
+- [ ] **Step 1: Add `Upload` to the lucide-react import (line 9)**
 
 ```typescript
 import { Save, Copy, Download, Check, AlertTriangle, Send, X, MessageSquare, Loader2, Upload } from "lucide-react"
 ```
 
-- [ ] **Step 2: Add push state declarations**
-
-After the existing OpenClaw state declarations (after line 67, before the first `useEffect`), add:
+- [ ] **Step 2: Add state declarations after the OpenClaw state block (after line 67)**
 
 ```typescript
 type OpenEMRPushState = "idle" | "pushing" | "success" | "failed"
+// Build-time constant. See comment in new-encounter-form.tsx.
 const OPENEMR_ENABLED = process.env.NEXT_PUBLIC_OPENEMR_ENABLED === "true"
 
 const [openEMRPushState, setOpenEMRPushState] = useState<OpenEMRPushState>("idle")
@@ -792,16 +1008,38 @@ const [openEMRError, setOpenEMRError] = useState("")
 
 - [ ] **Step 3: Reset push state when encounter changes**
 
-In the existing `useEffect` that resets OpenClaw state on `[encounter.id, encounter.note_text]` (around line 70), add the two new state resets:
+In the existing `useEffect` on `[encounter.id, encounter.note_text]`, add:
 
 ```typescript
 setOpenEMRPushState("idle")
 setOpenEMRError("")
 ```
 
-- [ ] **Step 4: Add the push handler**
+- [ ] **Step 4: Replace `handleNoteChange` with error-dismissing version**
 
-After the `handleExport` function, add:
+The existing function (around line 99):
+
+```typescript
+const handleNoteChange = (value: string) => {
+  setNoteMarkdown(value)
+  setHasChanges(true)
+}
+```
+
+Replace with:
+
+```typescript
+const handleNoteChange = (value: string) => {
+  setNoteMarkdown(value)
+  setHasChanges(true)
+  if (openEMRPushState === "failed") {
+    setOpenEMRPushState("idle")
+    setOpenEMRError("")
+  }
+}
+```
+
+- [ ] **Step 5: Add the push handler after `handleExport`**
 
 ```typescript
 const handlePushToOpenEMR = async () => {
@@ -810,7 +1048,7 @@ const handlePushToOpenEMR = async () => {
   setOpenEMRError("")
 
   try {
-    const response = await fetch("/api/integrations/openemr/push", {
+    const res = await fetch("/api/integrations/openemr/push", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -821,7 +1059,7 @@ const handlePushToOpenEMR = async () => {
         visitReason: encounter.visit_reason ?? "",
       }),
     })
-    const result = (await response.json()) as { success: boolean; id?: string; error?: string }
+    const result = (await res.json()) as { success: boolean; id?: string; error?: string }
 
     if (result.success) {
       setOpenEMRPushState("success")
@@ -837,9 +1075,7 @@ const handlePushToOpenEMR = async () => {
 }
 ```
 
-- [ ] **Step 5: Add the button to the toolbar**
-
-In the toolbar, after the "Send to OpenClaw" button block (after the closing `)}` of that conditional, before the "Save" button conditional), add:
+- [ ] **Step 6: Add button to toolbar (after OpenClaw button block, before Save button)**
 
 ```tsx
 {activeTab === "note" && OPENEMR_ENABLED && (
@@ -869,9 +1105,7 @@ In the toolbar, after the "Send to OpenClaw" button block (after the closing `)}
 )}
 ```
 
-- [ ] **Step 6: Add the error display**
-
-In the note tab content area, after the existing OpenClaw error block (`{openClawError && openClawInitState === "failed" && ...}`), add:
+- [ ] **Step 7: Add error display (after the OpenClaw error block)**
 
 ```tsx
 {openEMRError && openEMRPushState === "failed" && (
@@ -882,62 +1116,53 @@ In the note tab content area, after the existing OpenClaw error block (`{openCla
 )}
 ```
 
-- [ ] **Step 7: Dismiss error on note edit**
-
-In `handleNoteChange` (around line 99), the existing function looks like:
-
-```typescript
-const handleNoteChange = (value: string) => {
-  setNoteMarkdown(value)
-  setHasChanges(true)
-}
-```
-
-Replace it with:
-
-```typescript
-const handleNoteChange = (value: string) => {
-  setNoteMarkdown(value)
-  setHasChanges(true)
-  if (openEMRPushState === "failed") {
-    setOpenEMRPushState("idle")
-    setOpenEMRError("")
-  }
-}
-```
-
-- [ ] **Step 8: Verify TypeScript compiles**
+- [ ] **Step 8: TypeScript check**
 
 ```bash
-cd /Users/sammargolis/projects/apps/OpenScribe && npx tsc --noEmit --project apps/web/tsconfig.json 2>&1 | head -30
+cd /Users/sammargolis/projects/apps/OpenScribe && npx tsc --noEmit --project apps/web/tsconfig.json 2>&1 | head -20
 ```
 
 Expected: no errors.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 9: Verify manually (with `NEXT_PUBLIC_OPENEMR_ENABLED=true` in `.env.local`)**
+
+Start dev server:
+```bash
+cd /Users/sammargolis/projects/apps/OpenScribe && pnpm dev &
+```
+
+- ✓ Button appears in toolbar when flag set
+- ✓ Button disabled when note is empty
+- ✓ Button disabled when `patient_id` is empty (old encounters)
+- ✓ Push in-flight: spinner + "Pushing..." text, button disabled
+- ✓ Success: checkmark + "Pushed to OpenEMR", resets to idle after 3s
+- ✓ Failure: red error banner below editor
+- ✓ Editing note while failed: error banner clears
+
+Kill server: `kill %1`
+
+- [ ] **Step 10: Commit**
 
 ```bash
 git add packages/pipeline/render/src/components/note-editor.tsx
-git commit -m "feat: add Push to OpenEMR button to note editor"
+git commit -m "feat(openemr): Push to OpenEMR button with full state machine"
 ```
+
+**Summary of what changed:** `note-editor.tsx` has a new "Push to OpenEMR" button gated on `NEXT_PUBLIC_OPENEMR_ENABLED`. State machine: idle → pushing → success/failed. Error banner clears on note edit. Button disabled when note empty, patient_id empty, or push in flight. All OpenClaw behavior unchanged.
 
 ---
 
-## Final Verification
+## Chunk 5: End-to-End Verification
 
-### Task 8: End-to-end smoke test against local OpenEMR
+### Task 8: Smoke test against local OpenEMR
 
-**Prerequisites:**
-- OpenEMR running: `cd /Users/sammargolis/openemr-docker && docker compose up -d`
-- OAuth2 client registered in OpenEMR admin UI (Admin → System → API Clients)
-  - Scopes: `system/DocumentReference.write system/Patient.read`
-- `apps/web/.env.local` updated with real values (ask the developer to add these):
-  ```
-  OPENEMR_BASE_URL=http://localhost:8080
-  OPENEMR_CLIENT_ID=<from OpenEMR admin UI>
-  OPENEMR_CLIENT_SECRET=<from OpenEMR admin UI>
-  NEXT_PUBLIC_OPENEMR_ENABLED=true
-  ```
+**Prerequisite:** Ask the developer to add values to `apps/web/.env.local` before this step:
+```
+OPENEMR_BASE_URL=http://localhost:8080
+OPENEMR_CLIENT_ID=<from OpenEMR Admin → System → API Clients>
+OPENEMR_CLIENT_SECRET=<client secret>
+NEXT_PUBLIC_OPENEMR_ENABLED=true
+```
 
 - [ ] **Step 1: Start OpenEMR**
 
@@ -945,58 +1170,59 @@ git commit -m "feat: add Push to OpenEMR button to note editor"
 cd /Users/sammargolis/openemr-docker && docker compose up -d
 ```
 
-Wait ~30 seconds for OpenEMR to be ready, then verify:
+Wait ~30 seconds, then verify FHIR is up:
 ```bash
-curl -s http://localhost:8080/apis/default/fhir/metadata | python3 -m json.tool | head -10
+curl -s http://localhost:8080/apis/default/fhir/metadata | python3 -m json.tool | head -5
 ```
+
 Expected: FHIR CapabilityStatement JSON.
 
-- [ ] **Step 2: Start the OpenScribe dev server**
-
-```bash
-cd /Users/sammargolis/projects/apps/OpenScribe && pnpm dev:local
-```
-
-- [ ] **Step 3: Create a test patient in OpenEMR**
-
-Navigate to `http://localhost:8080`, log in as `admin` / `adminpass`, create a test patient. Note the patient's numeric ID from the URL or patient list.
-
-- [ ] **Step 4: Create an encounter in OpenScribe, push the note**
-
-1. Open `http://localhost:3001`
-2. Click "New Encounter", enter the OpenEMR patient ID from step 3
-3. Record a short encounter and wait for the note to generate
-4. In the note editor, click "Push to OpenEMR"
-5. Verify: button shows "Pushed to OpenEMR" ✓ with check icon
-
-- [ ] **Step 5: Verify the DocumentReference appears in OpenEMR**
-
-```bash
-# Get a token first
-TOKEN=$(curl -s -X POST http://localhost:8080/oauth2/default/token \
-  -d "grant_type=client_credentials&client_id=<CLIENT_ID>&client_secret=<CLIENT_SECRET>&scope=system/DocumentReference.read" \
-  | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
-
-# Search for the DocumentReference by patient
-curl -s "http://localhost:8080/apis/default/fhir/DocumentReference?subject=Patient/<PATIENT_ID>" \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool | grep '"id"'
-```
-
-Expected: a DocumentReference resource with the note content.
-
-- [ ] **Step 6: Test the failure case**
-
-In the note editor, edit the encounter to use a non-existent patient ID (e.g., `99999`), click "Push to OpenEMR". Verify the red error banner appears below the editor with "Patient ID 99999 was not found in OpenEMR."
-
-- [ ] **Step 7: Final commit and run full test suite**
+- [ ] **Step 2: Run the full test suite (no regressions)**
 
 ```bash
 cd /Users/sammargolis/projects/apps/OpenScribe && pnpm test
 ```
 
-Expected: all existing tests pass. The openemr-client tests run and pass.
+Expected: all tests pass including the 19 new OpenEMR tests.
+
+- [ ] **Step 3: Start OpenScribe**
+
+```bash
+cd /Users/sammargolis/projects/apps/OpenScribe && pnpm dev:local
+```
+
+- [ ] **Step 4: Create a test patient in OpenEMR**
+
+Open `http://localhost:8080`, log in as `admin` / `adminpass`. Create a test patient. Note their numeric patient ID (visible in the URL after navigating to their chart, e.g. `/patient_dashboard/index/pid/1`).
+
+- [ ] **Step 5: Create an encounter and push the note**
+
+1. Open `http://localhost:3001`
+2. Click "New Encounter", enter the patient ID from Step 4
+3. Record a short encounter, wait for note generation
+4. Click "Push to OpenEMR"
+5. Verify button shows "Pushed to OpenEMR" ✓
+
+- [ ] **Step 6: Verify DocumentReference in OpenEMR via FHIR API**
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/oauth2/default/token \
+  -d "grant_type=client_credentials&client_id=<CLIENT_ID>&client_secret=<CLIENT_SECRET>&scope=system/DocumentReference.read" \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+
+curl -s "http://localhost:8080/apis/default/fhir/DocumentReference?subject=Patient/<PATIENT_ID>" \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool | grep '"id"'
+```
+
+Expected: a DocumentReference entry with an `"id"` field.
+
+- [ ] **Step 7: Test failure case**
+
+In an existing encounter, temporarily enter a non-existent patient ID (e.g. `99999`), click "Push to OpenEMR". Verify the red error banner reads "Patient ID 99999 was not found in OpenEMR."
+
+- [ ] **Step 8: Final commit**
 
 ```bash
 git add .
-git commit -m "feat: OpenEMR FHIR push integration — end-to-end verified"
+git commit -m "feat(openemr): integration verified end-to-end against local OpenEMR"
 ```
