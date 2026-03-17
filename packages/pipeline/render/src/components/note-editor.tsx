@@ -6,7 +6,7 @@ import { Button } from "@ui/lib/ui/button"
 import { Textarea } from "@ui/lib/ui/textarea"
 import { Badge } from "@ui/lib/ui/badge"
 import { ScrollArea } from "@ui/lib/ui/scroll-area"
-import { Save, Copy, Download, Check, AlertTriangle, Send, X, MessageSquare, Loader2 } from "lucide-react"
+import { Save, Copy, Download, Check, AlertTriangle, Send, X, MessageSquare, Loader2, Upload } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@ui/lib/utils"
 
@@ -21,8 +21,14 @@ interface NoteEditorProps {
   onSave: (noteText: string) => void
 }
 
+// Note: this constant is intentionally duplicated from apps/web where
+// NEXT_PUBLIC_* vars are inlined at build time. This package can't import
+// from apps/web, and the duplication is minimal and explicit.
+const OPENEMR_ENABLED = process.env.NEXT_PUBLIC_OPENEMR_ENABLED === "true"
+
 type TabType = "note" | "transcript"
 type OpenClawInitState = "idle" | "sending" | "sent" | "failed"
+type OpenEMRPushState = "idle" | "pushing" | "success" | "failed"
 
 type OpenClawPayload = {
   source: "openscribe"
@@ -57,6 +63,9 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
   const [copied, setCopied] = useState(false)
   const [saved, setSaved] = useState(false)
 
+  const [openEMRPushState, setOpenEMRPushState] = useState<OpenEMRPushState>("idle")
+  const [openEMRError, setOpenEMRError] = useState("")
+
   const [openClawAvailable, setOpenClawAvailable] = useState(false)
   const [openClawPanelOpen, setOpenClawPanelOpen] = useState(false)
   const [openClawInitState, setOpenClawInitState] = useState<OpenClawInitState>("idle")
@@ -77,6 +86,8 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
     setOpenClawMessages([])
     setOpenClawInput("")
     setOpenClawSending(false)
+    setOpenEMRPushState("idle")
+    setOpenEMRError("")
   }, [encounter.id, encounter.note_text])
 
   useEffect(() => {
@@ -100,6 +111,10 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
     setNoteMarkdown(value)
     setHasChanges(true)
     setSaved(false)
+    if (openEMRPushState === "failed") {
+      setOpenEMRPushState("idle")
+      setOpenEMRError("")
+    }
   }
 
   const handleSave = () => {
@@ -280,6 +295,35 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
     ].join("\n")
   }
 
+  const handlePushToOpenEMR = async () => {
+    setOpenEMRPushState("pushing")
+    setOpenEMRError("")
+    try {
+      const resp = await fetch("/api/integrations/openemr/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          encounterId: encounter.id,
+          patientId: encounter.patient_id || "",
+          noteMarkdown,
+          patientName: encounter.patient_name || "",
+          visitReason: encounter.visit_reason || "",
+        }),
+      })
+      const data = (await resp.json()) as { success: boolean; id?: string; error?: string }
+      if (data.success) {
+        setOpenEMRPushState("success")
+        setTimeout(() => setOpenEMRPushState("idle"), 3000)
+      } else {
+        setOpenEMRPushState("failed")
+        setOpenEMRError(data.error || "OpenEMR push failed.")
+      }
+    } catch (err) {
+      setOpenEMRPushState("failed")
+      setOpenEMRError(err instanceof Error ? err.message : "OpenEMR push failed.")
+    }
+  }
+
   const handleOpenOpenClawChat = async () => {
     setOpenClawPanelOpen(true)
 
@@ -412,6 +456,34 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
                   </span>
                 </Button>
               )}
+              {activeTab === "note" && OPENEMR_ENABLED && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handlePushToOpenEMR}
+                  disabled={
+                    !noteMarkdown.trim() ||
+                    !encounter.patient_id ||
+                    openEMRPushState === "pushing"
+                  }
+                  className="h-8 rounded-full px-3 text-muted-foreground hover:text-foreground"
+                >
+                  {openEMRPushState === "pushing" ? (
+                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                  ) : openEMRPushState === "success" ? (
+                    <Check className="h-4 w-4 mr-1.5" />
+                  ) : (
+                    <Upload className="h-4 w-4 mr-1.5" />
+                  )}
+                  <span className="text-xs">
+                    {openEMRPushState === "pushing"
+                      ? "Pushing..."
+                      : openEMRPushState === "success"
+                        ? "Pushed to OpenEMR"
+                        : "Push to OpenEMR"}
+                  </span>
+                </Button>
+              )}
               {activeTab === "note" && (
                 <Button
                   size="sm"
@@ -444,6 +516,12 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
                   <div className="mt-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span>{openClawError}</span>
+                  </div>
+                )}
+                {openEMRError && openEMRPushState === "failed" && (
+                  <div className="mt-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{openEMRError}</span>
                   </div>
                 )}
               </>
