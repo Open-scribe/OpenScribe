@@ -184,6 +184,44 @@ test("pushNoteToOpenEMR succeeds on happy path", async () => {
   }
 })
 
+test("pushNoteToOpenEMR sends correct DocumentReference payload", async () => {
+  _resetTokenCacheForTesting()
+  let capturedBody: unknown = null
+
+  globalThis.fetch = async (url: string | URL | Request, opts?: RequestInit): Promise<Response> => {
+    const urlStr = typeof url === "string" ? url : url.toString()
+    if (urlStr.includes("DocumentReference") && opts?.method === "POST") {
+      capturedBody = JSON.parse(opts.body as string)
+      return { ok: true, status: 201, json: async () => ({ resourceType: "DocumentReference", id: "doc-1" }), text: async () => "" } as Response
+    }
+    if (urlStr.includes("/oauth2/")) {
+      return { ok: true, status: 200, json: async () => ({ access_token: "tok", expires_in: 3600 }), text: async () => "" } as Response
+    }
+    return { ok: true, status: 200, json: async () => ({ resourceType: "Patient", id: "42" }), text: async () => "" } as Response
+  }
+
+  await pushNoteToOpenEMR(SAMPLE_PARAMS)
+
+  assert.ok(capturedBody, "DocumentReference payload must be captured")
+  const p = capturedBody as Record<string, unknown>
+
+  // Subject reference must use "Patient/{id}" format
+  assert.deepEqual(p.subject, { reference: "Patient/42" })
+
+  // US Core category must be present
+  const cat = p.category as Array<{ coding: Array<{ code: string }> }>
+  assert.equal(cat[0].coding[0].code, "clinical-note")
+
+  // Content attachment
+  const content = p.content as Array<{ attachment: { contentType: string; data: string; title: string } }>
+  assert.equal(content[0].attachment.contentType, "text/markdown")
+  assert.equal(Buffer.from(content[0].attachment.data, "base64").toString(), SAMPLE_PARAMS.noteMarkdown)
+
+  // Description from visitReason, status current
+  assert.equal(p.description, SAMPLE_PARAMS.visitReason)
+  assert.equal(p.status, "current")
+})
+
 test("pushNoteToOpenEMR reuses cached token on second call", async () => {
   _resetTokenCacheForTesting()
   let tokenCalls = 0
@@ -279,6 +317,16 @@ Expected: error about `openemr-client.ts` not found or `_resetTokenCacheForTesti
 ```typescript
 // apps/web/src/lib/openemr-client.ts
 
+const FETCH_TIMEOUT_MS = 15_000
+
+// Wraps fetch with a 15s AbortController timeout.
+// On abort, throws AbortError (name === "AbortError").
+function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController()
+  const id = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(id))
+}
+
 type TokenCache = {
   accessToken: string
   expiresAt: number
@@ -315,7 +363,7 @@ async function getAccessToken(): Promise<string> {
     return tokenCache.accessToken
   }
 
-  const response = await fetch(`${baseUrl}/oauth2/default/token`, {
+  const response = await fetchWithTimeout(`${baseUrl}/oauth2/default/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -339,7 +387,7 @@ async function getAccessToken(): Promise<string> {
 }
 
 async function validatePatient(token: string, baseUrl: string, patientId: string): Promise<void> {
-  const response = await fetch(`${baseUrl}/apis/default/fhir/Patient/${patientId}`, {
+  const response = await fetchWithTimeout(`${baseUrl}/apis/default/fhir/Patient/${patientId}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!response.ok) {
@@ -383,7 +431,7 @@ async function createDocumentReference(
     ],
   }
 
-  const response = await fetch(`${baseUrl}/apis/default/fhir/DocumentReference`, {
+  const response = await fetchWithTimeout(`${baseUrl}/apis/default/fhir/DocumentReference`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -424,6 +472,12 @@ export async function pushNoteToOpenEMR(params: PushNoteParams): Promise<PushNot
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
 
+    if (error instanceof Error && error.name === "AbortError") {
+      return {
+        success: false,
+        error: `OpenEMR push timed out after ${FETCH_TIMEOUT_MS / 1000}s. Check that the server is responding at ${baseUrl}.`,
+      }
+    }
     if (message === "auth_failure") {
       return {
         success: false,
