@@ -1,0 +1,42 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - progressbar [ref=e6]
+      - main [ref=e14]:
+        - generic [ref=e15]:
+          - generic [ref=e18]:
+            - img [ref=e20]
+            - generic [ref=e25]: Sign in with Google
+          - generic [ref=e26]:
+            - heading "Sign in" [level=1] [ref=e27]
+            - generic [ref=e29]:
+              - text: to continue to
+              - button "openscribe-web-c7tayewpaq-uc.a.run.app" [ref=e30] [cursor=pointer]
+        - generic [ref=e38]:
+          - generic [ref=e43]:
+            - textbox "Email or phone" [active] [ref=e44]
+            - generic: Email or phone
+          - button "Forgot email?" [ref=e48] [cursor=pointer]
+        - generic [ref=e50]:
+          - button "Next" [ref=e54]:
+            - generic [ref=e57]: Next
+          - button "Create account" [ref=e62]:
+            - generic [ref=e65]: Create account
+    - contentinfo [ref=e69]:
+      - combobox "Change language English (United States)" [ref=e73] [cursor=pointer]:
+        - generic:
+          - generic: English (United States)
+        - generic:
+          - img
+      - list [ref=e75]:
+        - listitem [ref=e76]:
+          - link "Help" [ref=e77] [cursor=pointer]:
+            - /url: https://support.google.com/accounts?hl=en-US&p=account_iph
+        - listitem [ref=e78]:
+          - link "Privacy" [ref=e79] [cursor=pointer]:
+            - /url: https://accounts.google.com/TOS?loc=US&hl=en-US&privacy=true
+        - listitem [ref=e80]:
+          - link "Terms" [ref=e81] [cursor=pointer]:
+            - /url: https://accounts.google.com/TOS?loc=US&hl=en-US
+  - iframe [ref=e82]:
+    

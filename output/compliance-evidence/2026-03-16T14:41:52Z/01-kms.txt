@@ -1,0 +1,9 @@
+timestamp_utc: 2026-03-16T14:41:52Z
+project: openscribe-prod
+organization: 551180838370
+
+== KMS key rings and keys ==
+NAME              CREATE_TIME
+openscribe-hipaa  2026-03-16T13:46:57.994841546Z
+NAME                 PURPOSE          PRIMARY_STATE  ROTATION_PERIOD  NEXT_ROTATION_TIME
+openscribe-app-cmek  ENCRYPT_DECRYPT  ENABLED        7776000s         2026-06-14T13:46:58Z

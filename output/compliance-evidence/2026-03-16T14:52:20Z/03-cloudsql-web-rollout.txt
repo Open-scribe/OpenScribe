@@ -1,0 +1,75 @@
+timestamp_utc: 2026-03-16T14:52:20Z
+== Cloud SQL and rollout status ==
+name: openscribe-db
+settings:
+  connectorEnforcement: REQUIRED
+  ipConfiguration:
+    ipv4Enabled: true
+    message: Configuring authorized network or using CloudSQL auth proxy or language
+      connectors is a prerequisite for connecting to Public IP. Please refer to the
+      documentation for more details https://cloud.google.com/sql/docs/mysql/authorize-networks.
+    privateNetwork: projects/openscribe-prod/global/networks/default
+    requireSsl: false
+    serverCaMode: GOOGLE_MANAGED_INTERNAL_CA
+    serverCertificateRotationMode: SERVER_CERTIFICATE_ROTATION_MODE_UNSPECIFIED
+    sslMode: ENCRYPTED_ONLY
+state: RUNNABLE
+
+NAME                                  TYPE           STATUS   START                          END                            MESSAGE
+58d2b8ab-1c56-44d5-836b-955b00000032  UPDATE         RUNNING  2026-03-16T14:43:43.804+00:00  T
+9c606ab4-9406-4689-9e43-6b6d00000032  UPDATE         DONE     2026-03-16T14:34:48.054+00:00  2026-03-16T14:35:09.285+00:00
+6bad7781-bb0b-4401-aa17-230f00000032  BACKUP_VOLUME  DONE     2026-03-16T03:13:18.268+00:00  2026-03-16T03:14:08.946+00:00
+
+spec:
+  template:
+    spec:
+      containers:
+      - env:
+        - name: NODE_ENV
+          value: production
+        - name: HIPAA_HOSTED_MODE
+          value: 'true'
+        - name: NEXT_PUBLIC_HIPAA_HOSTED_MODE
+          value: 'true'
+        - name: NEXTAUTH_URL
+          value: https://openscribe-web-c7tayewpaq-uc.a.run.app
+        - name: TRANSCRIPTION_PROVIDER
+          value: whisper_local
+        - name: WHISPER_LOCAL_URL
+          value: https://openscribe-whisper-c7tayewpaq-uc.a.run.app/v1/audio/transcriptions
+        - name: WHISPER_LOCAL_AUTH_TYPE
+          value: identity_token
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: ANTHROPIC_API_KEY
+        - name: AUTH_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: AUTH_SECRET
+        - name: GOOGLE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: GOOGLE_CLIENT_ID
+        - name: GOOGLE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: GOOGLE_CLIENT_SECRET
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: DATABASE_URL
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: REDIS_URL
+        - name: REDIS_ROLLOUT_AT
+          value: 20260316T144055Z
+status:
+  latestReadyRevisionName: openscribe-web-00012-6gq

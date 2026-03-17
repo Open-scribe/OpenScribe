@@ -1,0 +1,2 @@
+[     734ms] [ERROR] Failed to load resource: the server responded with a status of 401 () @ https://openscribe-web-c7tayewpaq-uc.a.run.app/api/settings/mixed-auth-status:0
+[    1255ms] [WARNING] Microphone permission request failed NotAllowedError: Permission denied @ https://openscribe-web-c7tayewpaq-uc.a.run.app/_next/static/chunks/app/page-c3b10d1fde682ec1.js:0

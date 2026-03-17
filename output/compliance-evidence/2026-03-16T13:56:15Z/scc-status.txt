@@ -1,0 +1,50 @@
+timestamp_utc: 2026-03-16T13:56:15Z
+organization: 551180838370
+project: openscribe-prod
+
+== SCC services at org scope ==
+NAME                            INTENDED_ENABLEMENT_STATE  SERVICE_ENABLEMENT_STATE
+ARTIFACT_GUARD                  INHERITED
+CLOUD_RUN_THREAT_DETECTION      INHERITED
+EC2_VULNERABILITY_ASSESSMENT    INHERITED
+VM_THREAT_DETECTION             INHERITED
+NOTEBOOK_SECURITY_SCANNER       INHERITED
+WEB_SECURITY_SCANNER            INHERITED
+SECURITY_HEALTH_ANALYTICS       ENABLED
+GCE_VULNERABILITY_ASSESSMENT    INHERITED
+AGENT_ENGINE_THREAT_DETECTION   INHERITED
+ARTIFACT_ANALYSIS               INHERITED
+AZURE_VULNERABILITY_ASSESSMENT  INHERITED
+VM_THREAT_DETECTION_AWS         INHERITED
+EVENT_THREAT_DETECTION          ENABLED
+VM_MANAGER                      INHERITED
+CONTAINER_THREAT_DETECTION      INHERITED
+
+== SCC SHA org ==
+effectiveEnablementState: DISABLED
+intendedEnablementState: ENABLED
+name: organizations/551180838370/locations/global/securityCenterServices/security-health-analytics
+
+== SCC ETD org ==
+effectiveEnablementState: DISABLED
+intendedEnablementState: ENABLED
+name: organizations/551180838370/locations/global/securityCenterServices/event-threat-detection
+
+== SCC SHA project ==
+effectiveEnablementState: DISABLED
+intendedEnablementState: ENABLED
+name: projects/706903146695/locations/global/securityCenterServices/security-health-analytics
+
+== SCC ETD project ==
+effectiveEnablementState: DISABLED
+intendedEnablementState: ENABLED
+name: projects/706903146695/locations/global/securityCenterServices/event-threat-detection
+
+== Legacy sources endpoint check ==
+{
+  "error": {
+    "code": 400,
+    "message": "Security Command Center Legacy has been permanently disabled as of June 7, 2021. Migrate to Security Command Center's Standard tier or Premium tier to maintain access to Security Command Center. See https://cloud.google.com/security-command-center/docs/quickstart-security-command-center for more info.",
+    "status": "INVALID_ARGUMENT"
+  }
+}

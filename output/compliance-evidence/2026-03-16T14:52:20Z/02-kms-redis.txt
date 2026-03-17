@@ -1,0 +1,12 @@
+timestamp_utc: 2026-03-16T14:52:20Z
+== KMS and Redis secure ==
+NAME                 PURPOSE          PRIMARY_STATE  ROTATION_PERIOD  NEXT_ROTATION_TIME
+openscribe-app-cmek  ENCRYPT_DECRYPT  ENABLED        7776000s         2026-06-14T13:46:58Z
+authEnabled: true
+customerManagedKey: projects/openscribe-prod/locations/us-central1/keyRings/openscribe-hipaa/cryptoKeys/openscribe-app-cmek
+host: 10.119.66.124
+name: projects/openscribe-prod/locations/us-central1/instances/openscribe-redis-secure
+port: 6378
+state: READY
+tier: STANDARD_HA
+transitEncryptionMode: SERVER_AUTHENTICATION

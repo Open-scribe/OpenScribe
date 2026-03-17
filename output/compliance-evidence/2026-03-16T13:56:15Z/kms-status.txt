@@ -1,0 +1,19 @@
+timestamp_utc: 2026-03-16T13:56:15Z
+project: openscribe-prod
+organization: 551180838370
+
+== key rings us-central1 ==
+NAME              CREATE_TIME
+openscribe-hipaa  2026-03-16T13:46:57.994841546Z
+
+== keys us-central1 openscribe-hipaa ==
+NAME                 PURPOSE          PRIMARY_STATE  ROTATION_PERIOD  NEXT_ROTATION_TIME
+openscribe-app-cmek  ENCRYPT_DECRYPT  ENABLED        7776000s         2026-06-14T13:46:58Z
+
+== key rings us-east1 ==
+NAME              CREATE_TIME
+openscribe-hipaa  2026-03-16T13:47:00.375500780Z
+
+== keys us-east1 openscribe-hipaa ==
+NAME                 PURPOSE          PRIMARY_STATE  ROTATION_PERIOD  NEXT_ROTATION_TIME
+openscribe-app-cmek  ENCRYPT_DECRYPT  ENABLED        7776000s         2026-06-14T13:47:00Z
