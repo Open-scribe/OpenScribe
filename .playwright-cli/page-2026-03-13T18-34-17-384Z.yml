@@ -1,0 +1,35 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - progressbar [ref=e6]
+    - main [ref=e14]:
+      - generic [ref=e15]:
+        - generic [ref=e17]:
+          - img [ref=e19]
+          - generic [ref=e24]: Sign in with Google
+        - 'heading "Access blocked: This app’s request is invalid" [level=1] [ref=e26]'
+      - generic [ref=e34]:
+        - generic [ref=e35]:
+          - text: You can’t sign in because this app sent an invalid request. You can try again later, or contact the developer about this issue.
+          - link "Learn more about this error" [ref=e36] [cursor=pointer]:
+            - /url: https://developers.google.com/identity/protocols/oauth2/web-server#authorization-errors-redirect-uri-mismatch
+        - generic [ref=e37]:
+          - text: If you are a developer of this app, see
+          - button "error details" [ref=e38] [cursor=pointer]
+          - text: .
+        - generic [ref=e39]: "Error 400: redirect_uri_mismatch"
+  - contentinfo [ref=e44]:
+    - combobox "Change language English (United States)" [ref=e48] [cursor=pointer]:
+      - generic:
+        - generic: English (United States)
+      - generic:
+        - img
+    - list [ref=e50]:
+      - listitem [ref=e51]:
+        - link "Help" [ref=e52] [cursor=pointer]:
+          - /url: https://support.google.com/accounts?hl=en-US&p=account_iph
+      - listitem [ref=e53]:
+        - link "Privacy" [ref=e54] [cursor=pointer]:
+          - /url: https://accounts.google.com/TOS?loc=US&hl=en-US&privacy=true
+      - listitem [ref=e55]:
+        - link "Terms" [ref=e56] [cursor=pointer]:
+          - /url: https://accounts.google.com/TOS?loc=US&hl=en-US

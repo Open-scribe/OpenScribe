@@ -5,12 +5,12 @@ import { createClinicalNoteText } from "@note-core"
 import { getAnthropicApiKey } from "@storage/server-api-keys"
 import { writeAuditEntry } from "@storage/audit-log"
 import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
 import { hasAcceptedTerms } from "@/lib/compliance"
 
 export async function generateClinicalNote(params: ClinicalNoteRequest): Promise<string> {
   let userId = "local-user"
   if (process.env.HIPAA_HOSTED_MODE === "true") {
+    const { authOptions } = await import("@/lib/auth")
     const session = await getServerSession(authOptions)
     userId = session?.user?.id || ""
     if (!userId) {

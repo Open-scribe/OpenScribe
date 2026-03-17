@@ -1,6 +1,5 @@
 import type { NextRequest } from "next/server"
 import { getServerSession } from "next-auth"
-import { authOptions } from "./auth"
 import { hasAcceptedTerms } from "./compliance"
 import { isHipaaHostedMode } from "./hipaa-config"
 
@@ -8,6 +7,7 @@ export async function requireAuthenticatedUser() {
   if (!isHipaaHostedMode()) {
     return { ok: true as const, userId: "local-user", session: { user: { id: "local-user" } } }
   }
+  const { authOptions } = await import("./auth")
   const session = await getServerSession(authOptions)
   const userId = session?.user?.id
   if (!userId) {

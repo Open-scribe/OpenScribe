@@ -1,0 +1,6 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - heading "OpenScribe HIPAA Hosted" [level=1] [ref=e4]
+    - paragraph [ref=e5]: Sign in with Google to access the hosted clinical workflow.
+    - button "Sign in with Google" [ref=e6]
+  - alert [ref=e3]

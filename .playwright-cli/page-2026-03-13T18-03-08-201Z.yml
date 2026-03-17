@@ -1,0 +1,41 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e48]:
+      - heading "Anthropic Key Required for Mixed Mode" [level=3] [ref=e49]
+      - paragraph [ref=e50]: Mixed mode uses Claude for note generation. Add your Anthropic key in Settings, or switch to local-only mode.
+      - generic [ref=e51]:
+        - button "Add Key in Settings" [ref=e52]
+        - button "Switch to Local-only" [disabled] [ref=e53]
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - button "New Encounter" [ref=e7]:
+            - img
+            - text: New Encounter
+          - generic [ref=e8]:
+            - heading "Encounters" [level=2] [ref=e9]
+            - generic [ref=e10]:
+              - img [ref=e11]
+              - textbox "Search..." [ref=e14]
+          - generic [ref=e18]:
+            - img [ref=e19]
+            - paragraph [ref=e22]: No encounters yet
+        - generic [ref=e23]:
+          - paragraph [ref=e24]: Models
+          - generic [ref=e25]:
+            - generic [ref=e26]:
+              - img [ref=e27]
+              - generic [ref=e30]: Whisper (Local)
+            - generic [ref=e31]:
+              - img [ref=e32]
+              - generic [ref=e34]: Claude (Cloud)
+        - button "Settings" [ref=e36]:
+          - img
+          - generic [ref=e37]: Settings
+      - main [ref=e38]:
+        - generic [ref=e39]:
+          - button [ref=e40]:
+            - img [ref=e41]
+          - heading "Start a new interview" [level=2] [ref=e44]
+          - paragraph [ref=e45]: Record, transcribe, and generate clinical notes automatically.
+  - alert [ref=e46]

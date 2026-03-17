@@ -1,0 +1,6 @@
+[   11842ms] [ERROR] Failed to load resource: net::ERR_CERT_AUTHORITY_INVALID @ https://play.google.com/log?hasfast=true&authuser=0&format=json:0
+[   12053ms] [ERROR] Failed to load resource: net::ERR_CERT_AUTHORITY_INVALID @ https://play.google.com/log?hasfast=true&authuser=0&format=json:0
+[   21549ms] [ERROR] Failed to load resource: net::ERR_CERT_AUTHORITY_INVALID @ https://play.google.com/log?format=json&hasfast=true&authuser=0:0
+[   41915ms] [ERROR] Failed to load resource: net::ERR_CERT_AUTHORITY_INVALID @ https://play.google.com/log?hasfast=true&authuser=0&format=json:0
+[   58498ms] [ERROR] Failed to load resource: net::ERR_CERT_AUTHORITY_INVALID @ https://play.google.com/log?hasfast=true&authuser=0&format=json:0
+[   62861ms] [ERROR] Failed to load resource: net::ERR_CERT_AUTHORITY_INVALID @ https://play.google.com/log?hasfast=true&authuser=0&format=json:0

@@ -1,0 +1,3 @@
+[   11048ms] [ERROR] Failed to load resource: net::ERR_CERT_AUTHORITY_INVALID @ https://play.google.com/log?format=json&hasfast=true&authuser=0:0
+[   20782ms] [ERROR] Failed to load resource: net::ERR_CERT_AUTHORITY_INVALID @ https://play.google.com/log?format=json&hasfast=true&authuser=0:0
+[   40856ms] [ERROR] Failed to load resource: net::ERR_CERT_AUTHORITY_INVALID @ https://play.google.com/log?hasfast=true&authuser=0&format=json:0
