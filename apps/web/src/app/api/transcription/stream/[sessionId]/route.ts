@@ -14,7 +14,7 @@ export async function GET(
 ) {
   const auth = await requireAuthenticatedUser()
   if (!auth.ok) return auth.response
-  const terms = await requireAcceptedTerms(auth.userId, req)
+  const terms = await requireAcceptedTerms(auth.userId)
   if (!terms.ok) return terms.response
 
   const resolvedParams = "then" in context.params ? await context.params : context.params

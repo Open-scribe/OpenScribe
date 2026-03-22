@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
   try {
     const auth = await requireAuthenticatedUser()
     if (!auth.ok) return auth.response
-    const terms = await requireAcceptedTerms(auth.userId, req)
+    const terms = await requireAcceptedTerms(auth.userId)
     if (!terms.ok) return terms.response
 
     const formData = await req.formData()

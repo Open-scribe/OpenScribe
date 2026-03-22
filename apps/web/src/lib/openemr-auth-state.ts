@@ -21,11 +21,12 @@ export type OpenEMRTokenState = {
   lastRefreshError: string | null
 }
 
-function getStatePath(): string {
+async function getStatePath(): Promise<string> {
   const explicit = process.env.OPENEMR_AUTH_STATE_FILE?.trim()
   if (explicit) return explicit
   try {
-    const { app } = require("electron")
+    const electron = await import("electron")
+    const app = electron.app
     if (app?.getPath) {
       return path.join(app.getPath("userData"), "openemr-auth-state.json")
     }
@@ -35,13 +36,13 @@ function getStatePath(): string {
   return path.join(process.cwd(), ".openemr-auth-state.json")
 }
 
-function getKeyPath(): string {
-  const statePath = getStatePath()
+async function getKeyPath(): Promise<string> {
+  const statePath = await getStatePath()
   return path.join(path.dirname(statePath), ".openemr-auth-state.key")
 }
 
 async function getEncryptionKey(): Promise<Uint8Array> {
-  const keyPath = getKeyPath()
+  const keyPath = await getKeyPath()
   try {
     const existing = new Uint8Array(await fs.readFile(keyPath))
     if (existing.length === KEY_LENGTH) return existing
@@ -79,7 +80,7 @@ async function decrypt(payload: string): Promise<string> {
 }
 
 async function loadPersistedAuthState(): Promise<PersistedAuthState | null> {
-  const statePath = getStatePath()
+  const statePath = await getStatePath()
   try {
     const raw = await fs.readFile(statePath, "utf8")
     const decrypted = await decrypt(raw)
@@ -97,7 +98,7 @@ async function loadPersistedAuthState(): Promise<PersistedAuthState | null> {
 }
 
 async function savePersistedAuthState(next: PersistedAuthState): Promise<void> {
-  const statePath = getStatePath()
+  const statePath = await getStatePath()
   await fs.mkdir(path.dirname(statePath), { recursive: true })
   const encrypted = await encrypt(JSON.stringify(next, null, 2))
   await fs.writeFile(statePath, encrypted, { mode: 0o600 })

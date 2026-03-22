@@ -1,4 +1,3 @@
-import type { NextRequest } from "next/server"
 import { getServerSession } from "next-auth"
 import { hasAcceptedTerms } from "./compliance"
 import { isHipaaHostedMode } from "./hipaa-config"
@@ -16,7 +15,7 @@ export async function requireAuthenticatedUser() {
   return { ok: true as const, userId, session }
 }
 
-export async function requireAcceptedTerms(userId: string, req: NextRequest) {
+export async function requireAcceptedTerms(userId: string) {
   if (!isHipaaHostedMode()) {
     return { ok: true as const }
   }

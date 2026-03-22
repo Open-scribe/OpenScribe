@@ -9,7 +9,6 @@ import { requireAuthenticatedUser } from "@/lib/auth-guard"
 // Encryption configuration
 const ALGORITHM = "aes-256-gcm"
 const IV_LENGTH = 12
-const AUTH_TAG_LENGTH = 16
 const KEY_LENGTH = 32
 
 /**
@@ -18,7 +17,7 @@ const KEY_LENGTH = 32
  * so we store an encrypted key in a separate file.
  */
 async function getEncryptionKey(): Promise<Buffer> {
-  const configDir = path.dirname(getConfigPath())
+  const configDir = path.dirname(await getConfigPath())
   const keyPath = path.join(configDir, ".encryption-key")
   
   try {
@@ -32,7 +31,9 @@ async function getEncryptionKey(): Promise<Buffer> {
     // Ensure directory exists
     try {
       await fs.mkdir(configDir, { recursive: true })
-    } catch {}
+    } catch {
+      // Directory creation races are safe to ignore.
+    }
     
     // Store key with restrictive permissions
     await fs.writeFile(keyPath, key, { mode: 0o600 })
@@ -84,15 +85,16 @@ async function decryptData(payload: string): Promise<string> {
 }
 
 // Get the app data directory for storing config
-function getConfigPath(): string {
+async function getConfigPath(): Promise<string> {
   try {
-    const { app } = require("electron")
+    const electron = await import("electron")
+    const app = electron.app
     if (app && app.getPath) {
       // Electron environment
       const userDataPath = app.getPath("userData")
       return path.join(userDataPath, "api-keys.json")
     }
-  } catch (error) {
+  } catch {
     // Electron not available (development or build time)
   }
   // Development environment - use temp directory
@@ -114,7 +116,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { openaiApiKey, anthropicApiKey } = body
 
-    const configPath = getConfigPath()
+    const configPath = await getConfigPath()
 
     // Prepare data
     const data = JSON.stringify(
@@ -175,7 +177,7 @@ export async function GET() {
   if (!auth.ok) return auth.response
 
   try {
-    const configPath = getConfigPath()
+    const configPath = await getConfigPath()
 
     try {
       const fileContent = await fs.readFile(configPath, "utf-8")
@@ -185,7 +187,7 @@ export async function GET() {
       const keys = JSON.parse(decrypted)
       
       return NextResponse.json(keys)
-    } catch (error) {
+    } catch {
       // File doesn't exist or is invalid, return empty keys
       return NextResponse.json({
         openaiApiKey: "",
