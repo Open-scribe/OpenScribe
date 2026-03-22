@@ -1,0 +1,279 @@
+name: Deploy Web (GCP HIPAA)
+
+on:
+  push:
+    branches:
+      - codex/prod-hipaa
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Validate required configuration
+        env:
+          GCP_REGION: ${{ secrets.GCP_REGION }}
+          GCP_ARTIFACT_REPO: ${{ secrets.GCP_ARTIFACT_REPO }}
+          GCP_CLOUD_RUN_SERVICE: ${{ secrets.GCP_CLOUD_RUN_SERVICE }}
+          GCP_RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_RUNTIME_SERVICE_ACCOUNT }}
+          GCP_WHISPER_CLOUD_RUN_SERVICE: ${{ secrets.GCP_WHISPER_CLOUD_RUN_SERVICE }}
+          GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT: ${{ secrets.GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT }}
+          GCP_VPC_CONNECTOR: ${{ secrets.GCP_VPC_CONNECTOR }}
+          GCP_CLOUD_SQL_INSTANCE: ${{ secrets.GCP_CLOUD_SQL_INSTANCE }}
+          GCP_NEXTAUTH_URL: ${{ secrets.GCP_NEXTAUTH_URL }}
+          NEXT_PUBLIC_SECURE_STORAGE_KEY: ${{ secrets.NEXT_PUBLIC_SECURE_STORAGE_KEY }}
+        run: |
+          for key in GCP_REGION GCP_ARTIFACT_REPO GCP_CLOUD_RUN_SERVICE GCP_RUNTIME_SERVICE_ACCOUNT GCP_WHISPER_CLOUD_RUN_SERVICE GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT GCP_VPC_CONNECTOR GCP_CLOUD_SQL_INSTANCE GCP_NEXTAUTH_URL NEXT_PUBLIC_SECURE_STORAGE_KEY; do
+            if [ -z "${!key}" ]; then
+              echo "Missing required secret: $key"
+              exit 1
+            fi
+          done
+
+      - name: Enable required APIs
+        run: |
+          gcloud services enable \
+            run.googleapis.com \
+            cloudbuild.googleapis.com \
+            artifactregistry.googleapis.com \
+            secretmanager.googleapis.com \
+            logging.googleapis.com \
+            sqladmin.googleapis.com
+
+      - name: Ensure required Secret Manager secrets exist
+        run: |
+          for name in ANTHROPIC_API_KEY AUTH_SECRET GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET DATABASE_URL REDIS_URL; do
+            gcloud secrets describe "$name" >/dev/null
+          done
+
+      - name: Run DB migrations via Cloud SQL Proxy
+        env:
+          CLOUD_SQL_INSTANCE: ${{ secrets.GCP_CLOUD_SQL_INSTANCE }}
+        run: |
+          DATABASE_URL_RAW="$(gcloud secrets versions access latest --secret DATABASE_URL | tr -d '\n')"
+          DATABASE_URL_PROXY="$(DATABASE_URL_RAW="$DATABASE_URL_RAW" node -e '
+            const raw = process.env.DATABASE_URL_RAW?.trim()
+            if (!raw) process.exit(1)
+            try {
+              const url = new URL(raw)
+              url.hostname = "127.0.0.1"
+              url.port = "55432"
+              url.searchParams.delete("sslmode")
+              process.stdout.write(url.toString())
+            } catch {
+              const separator = "@/";
+              const index = raw.indexOf(separator)
+              if (index <= 0) process.exit(1)
+              const prefix = raw.slice(0, index)
+              const remainder = raw.slice(index + separator.length)
+              const db = remainder.split("?")[0]
+              if (!db) process.exit(1)
+              process.stdout.write(`${prefix}@127.0.0.1:55432/${db}`)
+            }
+          ')"
+
+          curl -fsSL -o cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          ./cloud-sql-proxy "$CLOUD_SQL_INSTANCE" --port 55432 >/tmp/cloud-sql-proxy.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill "$PROXY_PID"' EXIT
+          sleep 5
+
+          DATABASE_URL="$DATABASE_URL_PROXY" pnpm db:migrate
+
+      - name: Ensure Artifact Registry repo
+        env:
+          REGION: ${{ secrets.GCP_REGION }}
+          REPO: ${{ secrets.GCP_ARTIFACT_REPO }}
+        run: |
+          gcloud artifacts repositories describe "$REPO" --location="$REGION" >/dev/null 2>&1 || \
+          gcloud artifacts repositories create "$REPO" \
+            --repository-format=docker \
+            --location="$REGION" \
+            --description="OpenScribe production images"
+
+      - name: Build container images
+        id: image
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          REGION: ${{ secrets.GCP_REGION }}
+          REPO: ${{ secrets.GCP_ARTIFACT_REPO }}
+          NEXT_PUBLIC_SECURE_STORAGE_KEY: ${{ secrets.NEXT_PUBLIC_SECURE_STORAGE_KEY }}
+        run: |
+          WEB_IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/openscribe-web:${GITHUB_SHA::12}"
+          WHISPER_IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/openscribe-whisper:${GITHUB_SHA::12}"
+
+          cat >/tmp/cloudbuild-web.yaml <<'YAML'
+          steps:
+            - name: gcr.io/cloud-builders/docker
+              args:
+                - build
+                - -t
+                - ${_WEB_IMAGE_URI}
+                - -f
+                - docker/web-cloudrun.Dockerfile
+                - --build-arg
+                - NEXT_PUBLIC_SECURE_STORAGE_KEY=${_NEXT_PUBLIC_SECURE_STORAGE_KEY}
+                - --build-arg
+                - NEXT_PUBLIC_HIPAA_HOSTED_MODE=${_NEXT_PUBLIC_HIPAA_HOSTED_MODE}
+                - --build-arg
+                - DATABASE_URL=${_DATABASE_URL_BUILD}
+                - .
+          images:
+            - ${_WEB_IMAGE_URI}
+          YAML
+
+          gcloud builds submit \
+            --config /tmp/cloudbuild-web.yaml \
+            --substitutions "_WEB_IMAGE_URI=${WEB_IMAGE_URI},_NEXT_PUBLIC_SECURE_STORAGE_KEY=${NEXT_PUBLIC_SECURE_STORAGE_KEY},_NEXT_PUBLIC_HIPAA_HOSTED_MODE=true,_DATABASE_URL_BUILD=postgresql://placeholder:placeholder@127.0.0.1:5432/placeholder" \
+            --async \
+            --format='value(id)' > /tmp/web_build_id.txt
+          WEB_BUILD_ID="$(tr -d '\n' </tmp/web_build_id.txt)"
+
+          cat >/tmp/cloudbuild-whisper.yaml <<'YAML'
+          steps:
+            - name: gcr.io/cloud-builders/docker
+              args:
+                - build
+                - -t
+                - ${_WHISPER_IMAGE_URI}
+                - -f
+                - docker/whisper-cloudrun.Dockerfile
+                - .
+          images:
+            - ${_WHISPER_IMAGE_URI}
+          YAML
+
+          gcloud builds submit \
+            --config /tmp/cloudbuild-whisper.yaml \
+            --substitutions "_WHISPER_IMAGE_URI=${WHISPER_IMAGE_URI}" \
+            --async \
+            --format='value(id)' > /tmp/whisper_build_id.txt
+          WHISPER_BUILD_ID="$(tr -d '\n' </tmp/whisper_build_id.txt)"
+
+          wait_for_build() {
+            local build_id="$1"
+            while true; do
+              status="$(gcloud builds describe "$build_id" --format='value(status)')"
+              case "$status" in
+                SUCCESS) return 0 ;;
+                FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
+                  gcloud builds describe "$build_id"
+                  return 1
+                  ;;
+                *)
+                  sleep 10
+                  ;;
+              esac
+            done
+          }
+
+          wait_for_build "$WEB_BUILD_ID"
+          wait_for_build "$WHISPER_BUILD_ID"
+          echo "web_image_uri=$WEB_IMAGE_URI" >> "$GITHUB_OUTPUT"
+          echo "whisper_image_uri=$WHISPER_IMAGE_URI" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Whisper Cloud Run (private)
+        env:
+          REGION: ${{ secrets.GCP_REGION }}
+          SERVICE_NAME: ${{ secrets.GCP_WHISPER_CLOUD_RUN_SERVICE }}
+          RUNTIME_SA: ${{ secrets.GCP_WHISPER_RUNTIME_SERVICE_ACCOUNT }}
+          IMAGE_URI: ${{ steps.image.outputs.whisper_image_uri }}
+        run: |
+          gcloud run deploy "$SERVICE_NAME" \
+            --image "$IMAGE_URI" \
+            --region "$REGION" \
+            --platform managed \
+            --port 8081 \
+            --service-account "$RUNTIME_SA" \
+            --ingress all \
+            --execution-environment gen2 \
+            --cpu 4 \
+            --memory 8Gi \
+            --min-instances 1 \
+            --max-instances 4 \
+            --set-env-vars "WHISPER_LOCAL_MODEL=tiny.en,WHISPER_LOCAL_BACKEND=cpp,WHISPER_LOCAL_GPU=1" \
+            --no-allow-unauthenticated
+
+      - name: Grant web runtime invoke access to whisper
+        env:
+          REGION: ${{ secrets.GCP_REGION }}
+          WHISPER_SERVICE: ${{ secrets.GCP_WHISPER_CLOUD_RUN_SERVICE }}
+          WEB_RUNTIME_SA: ${{ secrets.GCP_RUNTIME_SERVICE_ACCOUNT }}
+        run: |
+          gcloud run services add-iam-policy-binding "$WHISPER_SERVICE" \
+            --region "$REGION" \
+            --member "serviceAccount:${WEB_RUNTIME_SA}" \
+            --role roles/run.invoker
+
+      - name: Resolve whisper URL
+        id: whisper
+        env:
+          REGION: ${{ secrets.GCP_REGION }}
+          SERVICE_NAME: ${{ secrets.GCP_WHISPER_CLOUD_RUN_SERVICE }}
+        run: |
+          URL="$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)')"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy Web Cloud Run
+        env:
+          REGION: ${{ secrets.GCP_REGION }}
+          SERVICE_NAME: ${{ secrets.GCP_CLOUD_RUN_SERVICE }}
+          RUNTIME_SA: ${{ secrets.GCP_RUNTIME_SERVICE_ACCOUNT }}
+          IMAGE_URI: ${{ steps.image.outputs.web_image_uri }}
+          WHISPER_URL: ${{ steps.whisper.outputs.url }}
+          VPC_CONNECTOR: ${{ secrets.GCP_VPC_CONNECTOR }}
+          CLOUD_SQL_INSTANCE: ${{ secrets.GCP_CLOUD_SQL_INSTANCE }}
+          NEXTAUTH_URL: ${{ secrets.GCP_NEXTAUTH_URL }}
+        run: |
+          gcloud run deploy "$SERVICE_NAME" \
+            --image "$IMAGE_URI" \
+            --region "$REGION" \
+            --platform managed \
+            --port 8080 \
+            --service-account "$RUNTIME_SA" \
+            --ingress all \
+            --execution-environment gen2 \
+            --cpu 1 \
+            --memory 2Gi \
+            --min-instances 1 \
+            --max-instances 20 \
+            --vpc-connector "$VPC_CONNECTOR" \
+            --vpc-egress private-ranges-only \
+            --add-cloudsql-instances "$CLOUD_SQL_INSTANCE" \
+            --set-env-vars "NODE_ENV=production,HIPAA_HOSTED_MODE=true,NEXT_PUBLIC_HIPAA_HOSTED_MODE=true,NEXTAUTH_URL=${NEXTAUTH_URL},TRANSCRIPTION_PROVIDER=whisper_local,WHISPER_LOCAL_URL=${WHISPER_URL}/v1/audio/transcriptions,WHISPER_LOCAL_AUTH_TYPE=identity_token" \
+            --set-secrets "ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,AUTH_SECRET=AUTH_SECRET:latest,GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID:latest,GOOGLE_CLIENT_SECRET=GOOGLE_CLIENT_SECRET:latest,DATABASE_URL=DATABASE_URL:latest,REDIS_URL=REDIS_URL:latest" \
+            --allow-unauthenticated
+
+      - name: Print service URLs
+        env:
+          REGION: ${{ secrets.GCP_REGION }}
+          WEB_SERVICE: ${{ secrets.GCP_CLOUD_RUN_SERVICE }}
+          WHISPER_SERVICE: ${{ secrets.GCP_WHISPER_CLOUD_RUN_SERVICE }}
+        run: |
+          gcloud run services describe "$WEB_SERVICE" --region "$REGION" --format='value(status.url)'
+          gcloud run services describe "$WHISPER_SERVICE" --region "$REGION" --format='value(status.url)'

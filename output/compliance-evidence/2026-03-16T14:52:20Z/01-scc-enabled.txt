@@ -1,0 +1,6 @@
+timestamp_utc: 2026-03-16T14:52:20Z
+== SCC org + project states ==
+organizations/551180838370/locations/global/securityCenterServices/security-health-analytics	ENABLED	ENABLED
+organizations/551180838370/locations/global/securityCenterServices/event-threat-detection	ENABLED	ENABLED
+projects/706903146695/locations/global/securityCenterServices/security-health-analytics	ENABLED	ENABLED
+projects/706903146695/locations/global/securityCenterServices/event-threat-detection	ENABLED	ENABLED

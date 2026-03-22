@@ -1,0 +1,73 @@
+timestamp_utc: 2026-03-16T14:41:52Z
+== Cloud SQL hardening ==
+name: openscribe-db
+settings:
+  connectorEnforcement: REQUIRED
+  ipConfiguration:
+    ipv4Enabled: true
+    sslMode: ENCRYPTED_ONLY
+
+== Redis secure instance ==
+authEnabled: true
+customerManagedKey: projects/openscribe-prod/locations/us-central1/keyRings/openscribe-hipaa/cryptoKeys/openscribe-app-cmek
+host: 10.119.66.124
+name: projects/openscribe-prod/locations/us-central1/instances/openscribe-redis-secure
+port: 6378
+state: READY
+tier: STANDARD_HA
+transitEncryptionMode: SERVER_AUTHENTICATION
+
+== Cloud Run web revision using latest REDIS_URL secret ==
+spec:
+  template:
+    spec:
+      containers:
+      - env:
+        - name: NODE_ENV
+          value: production
+        - name: HIPAA_HOSTED_MODE
+          value: 'true'
+        - name: NEXT_PUBLIC_HIPAA_HOSTED_MODE
+          value: 'true'
+        - name: NEXTAUTH_URL
+          value: https://openscribe-web-c7tayewpaq-uc.a.run.app
+        - name: TRANSCRIPTION_PROVIDER
+          value: whisper_local
+        - name: WHISPER_LOCAL_URL
+          value: https://openscribe-whisper-c7tayewpaq-uc.a.run.app/v1/audio/transcriptions
+        - name: WHISPER_LOCAL_AUTH_TYPE
+          value: identity_token
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: ANTHROPIC_API_KEY
+        - name: AUTH_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: AUTH_SECRET
+        - name: GOOGLE_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: GOOGLE_CLIENT_ID
+        - name: GOOGLE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: GOOGLE_CLIENT_SECRET
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: DATABASE_URL
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: REDIS_URL
+        - name: REDIS_ROLLOUT_AT
+          value: 20260316T144055Z
+status:
+  latestReadyRevisionName: openscribe-web-00012-6gq

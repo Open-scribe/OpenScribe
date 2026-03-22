@@ -1,0 +1,16 @@
+timestamp_utc: 2026-03-16T14:41:52Z
+== SCC org services ==
+effectiveEnablementState: ENABLED
+intendedEnablementState: ENABLED
+name: organizations/551180838370/locations/global/securityCenterServices/security-health-analytics
+effectiveEnablementState: ENABLED
+intendedEnablementState: ENABLED
+name: organizations/551180838370/locations/global/securityCenterServices/event-threat-detection
+
+== SCC project services ==
+effectiveEnablementState: ENABLED
+intendedEnablementState: ENABLED
+name: projects/706903146695/locations/global/securityCenterServices/security-health-analytics
+effectiveEnablementState: ENABLED
+intendedEnablementState: ENABLED
+name: projects/706903146695/locations/global/securityCenterServices/event-threat-detection

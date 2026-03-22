@@ -18,6 +18,7 @@ const ignoredPaths = [
   "apps/web/public/**",
   "apps/web/.next/**",
   "output/**",
+  ".pnpm-store/**",
 ]
 const nodeFiles = ["config/**/*.{js,mjs,cjs}", "packages/shell/**/*.js", "scripts/**/*.{js,mjs,cjs}"]
 const nodeGlobals = {
@@ -105,9 +106,7 @@ export default tseslint.config(
     files: nodeFiles,
     languageOptions: {
       parserOptions: {
-        projectService: {
-          allowDefaultProject: ["scripts/*.js", "scripts/*.mjs", "scripts/*.cjs"],
-        },
+        projectService: false,
         tsconfigRootDir,
       },
       globals: nodeGlobals,

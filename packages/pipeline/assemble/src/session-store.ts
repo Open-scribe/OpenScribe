@@ -18,6 +18,7 @@ export interface TranscriptionEvent {
 
 interface SessionRecord {
   id: string
+  ownerUserId?: string
   segments: Map<number, SegmentMetadata>
   stitchedText: string
   status: TranscriptionStatus
@@ -99,11 +100,12 @@ class TranscriptionSessionStore {
     }
   }
 
-  getSession(sessionId: string): SessionRecord {
+  getSession(sessionId: string, ownerUserId?: string): SessionRecord {
     let session = this.sessions.get(sessionId)
     if (!session) {
       session = {
         id: sessionId,
+        ownerUserId,
         segments: new Map(),
         stitchedText: "",
         status: "recording",
@@ -112,12 +114,16 @@ class TranscriptionSessionStore {
       this.sessions.set(sessionId, session)
       this.sessionTimestamps.set(sessionId, Date.now())
       console.log(`[SessionStore] Created new session: ${sessionId}. Total sessions: ${this.sessions.size}`)
+    } else if (ownerUserId && session.ownerUserId && session.ownerUserId !== ownerUserId) {
+      throw new Error("Unauthorized session access")
+    } else if (ownerUserId && !session.ownerUserId) {
+      session.ownerUserId = ownerUserId
     }
     return session
   }
 
-  subscribe(sessionId: string, listener: (event: TranscriptionEvent) => void): () => void {
-    const session = this.getSession(sessionId)
+  subscribe(sessionId: string, listener: (event: TranscriptionEvent) => void, ownerUserId?: string): () => void {
+    const session = this.getSession(sessionId, ownerUserId)
     session.listeners.add(listener)
     console.log(`[SessionStore] Subscriber added to session ${sessionId}. Total listeners: ${session.listeners.size}`)
 
@@ -148,8 +154,8 @@ class TranscriptionSessionStore {
     })
   }
 
-  addSegment(sessionId: string, segment: Omit<SegmentMetadata, "transcript"> & { transcript: string }) {
-    const session = this.getSession(sessionId)
+  addSegment(sessionId: string, segment: Omit<SegmentMetadata, "transcript"> & { transcript: string }, ownerUserId?: string) {
+    const session = this.getSession(sessionId, ownerUserId)
     session.segments.set(segment.seqNo, segment)
 
     const orderedSegments = Array.from(session.segments.values()).sort((a, b) => a.seqNo - b.seqNo)
@@ -175,8 +181,8 @@ class TranscriptionSessionStore {
     })
   }
 
-  setStatus(sessionId: string, status: TranscriptionStatus) {
-    const session = this.getSession(sessionId)
+  setStatus(sessionId: string, status: TranscriptionStatus, ownerUserId?: string) {
+    const session = this.getSession(sessionId, ownerUserId)
     session.status = status
     this.emit(session, {
       event: "status",
@@ -189,8 +195,8 @@ class TranscriptionSessionStore {
     })
   }
 
-  setFinalTranscript(sessionId: string, transcript: string) {
-    const session = this.getSession(sessionId)
+  setFinalTranscript(sessionId: string, transcript: string, ownerUserId?: string) {
+    const session = this.getSession(sessionId, ownerUserId)
     session.finalTranscript = transcript
     session.status = "completed"
     this.sessionTimestamps.set(sessionId, Date.now()) // Update timestamp on completion
@@ -204,8 +210,8 @@ class TranscriptionSessionStore {
     })
   }
 
-  emitError(sessionId: string, error: PipelineError | Error | unknown) {
-    const session = this.getSession(sessionId)
+  emitError(sessionId: string, error: PipelineError | Error | unknown, ownerUserId?: string) {
+    const session = this.getSession(sessionId, ownerUserId)
     session.status = "error"
     const normalizedError = toPipelineError(error, {
       code: "assembly_error",
@@ -222,6 +228,13 @@ class TranscriptionSessionStore {
         details: normalizedError.details,
       },
     })
+  }
+
+  isSessionOwner(sessionId: string, userId: string): boolean {
+    const session = this.sessions.get(sessionId)
+    if (!session) return false
+    if (!session.ownerUserId) return false
+    return session.ownerUserId === userId
   }
 }
 

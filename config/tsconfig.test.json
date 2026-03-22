@@ -21,7 +21,12 @@
     "../packages/pipeline/medgemma-scribe/src/**/*.ts",
     "../packages/llm/src/**/*.ts",
     "../packages/llm-medgemma/src/**/*.ts",
-    "../packages/storage/src/**/*.ts"
+    "../packages/storage/src/**/*.ts",
+    "../apps/web/src/lib/openemr-client.ts",
+    "../apps/web/src/lib/__tests__/openemr-client.test.ts",
+    "../apps/web/src/lib/__tests__/openemr-auth-state.test.ts",
+    "../apps/web/src/lib/openemr-push-handler.ts",
+    "../apps/web/src/lib/__tests__/openemr-push-handler.test.ts"
   ],
   "exclude": [
     "node_modules",

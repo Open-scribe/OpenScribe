@@ -1,0 +1,31 @@
+timestamp_utc: 2026-03-16T13:49:40Z
+project: openscribe-prod
+note: SCC legacy sources endpoint is deprecated; using Security Center Services state instead.
+
+== SCC services list ==
+NAME                            INTENDED_ENABLEMENT_STATE  SERVICE_ENABLEMENT_STATE
+EVENT_THREAT_DETECTION          ENABLED
+WEB_SECURITY_SCANNER            INHERITED
+CLOUD_RUN_THREAT_DETECTION      INHERITED
+CONTAINER_THREAT_DETECTION      INHERITED
+VM_THREAT_DETECTION             INHERITED
+EC2_VULNERABILITY_ASSESSMENT    INHERITED
+AGENT_ENGINE_THREAT_DETECTION   INHERITED
+VM_MANAGER                      INHERITED
+VM_THREAT_DETECTION_AWS         INHERITED
+AZURE_VULNERABILITY_ASSESSMENT  INHERITED
+NOTEBOOK_SECURITY_SCANNER       INHERITED
+GCE_VULNERABILITY_ASSESSMENT    INHERITED
+ARTIFACT_GUARD                  INHERITED
+SECURITY_HEALTH_ANALYTICS       ENABLED
+ARTIFACT_ANALYSIS               INHERITED
+
+== SHA service ==
+effectiveEnablementState: DISABLED
+intendedEnablementState: ENABLED
+name: projects/706903146695/locations/global/securityCenterServices/security-health-analytics
+
+== ETD service ==
+effectiveEnablementState: DISABLED
+intendedEnablementState: ENABLED
+name: projects/706903146695/locations/global/securityCenterServices/event-threat-detection

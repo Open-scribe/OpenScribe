@@ -1,0 +1,24 @@
+timestamp_utc: 2026-03-16T13:49:40Z
+project: openscribe-prod
+
+== Cloud SQL openscribe-db ==
+name: openscribe-db
+region: us-central1
+settings:
+  ipConfiguration:
+    ipv4Enabled: true
+    message: Configuring authorized network or using CloudSQL auth proxy or language
+      connectors is a prerequisite for connecting to Public IP. Please refer to the
+      documentation for more details https://cloud.google.com/sql/docs/mysql/authorize-networks.
+    requireSsl: false
+    serverCaMode: GOOGLE_MANAGED_INTERNAL_CA
+    serverCertificateRotationMode: SERVER_CERTIFICATE_ROTATION_MODE_UNSPECIFIED
+    sslMode: ALLOW_UNENCRYPTED_AND_ENCRYPTED
+
+== Redis openscribe-redis ==
+name: projects/openscribe-prod/locations/us-central1/instances/openscribe-redis
+transitEncryptionMode: DISABLED
+
+== Artifact Registry openscribe-images ==
+format: DOCKER
+name: projects/openscribe-prod/locations/us-central1/repositories/openscribe-images

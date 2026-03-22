@@ -13,7 +13,13 @@ import type { Encounter } from "../types.js"
 
 // Mock localStorage for Node.js environment
 const mockStorage: Record<string, string> = {}
-global.localStorage = {
+const testGlobal = global as typeof globalThis & {
+  localStorage: Storage
+  window: Window & typeof globalThis
+  crypto: Crypto
+}
+
+testGlobal.localStorage = {
   getItem: (key: string) => mockStorage[key] || null,
   setItem: (key: string, value: string) => {
     mockStorage[key] = value
@@ -28,31 +34,15 @@ global.localStorage = {
   length: Object.keys(mockStorage).length,
 } as Storage
 
-// Mock crypto.randomUUID for testing
-if (!global.crypto) {
-  global.crypto = {} as Crypto
-}
-if (!global.crypto.randomUUID) {
-  let counter = 0
-  // @ts-ignore - Mock for testing
-  global.crypto.randomUUID = () => `test-uuid-${++counter}`
-}
+testGlobal.window = {
+  localStorage: testGlobal.localStorage,
+} as unknown as Window & typeof globalThis
 
-// Mock secure storage for testing
-// Note: In real app this would use AES-GCM encryption
-// @ts-ignore - mocking module
-await import("../secure-storage.js").then(module => {
-  const original = { ...module }
-  // @ts-ignore
-  module.loadSecureItem = async (key: string) => {
-    const data = localStorage.getItem(key)
-    return data ? JSON.parse(data) : null
-  }
-  // @ts-ignore
-  module.saveSecureItem = async (key: string, value: any) => {
-    localStorage.setItem(key, JSON.stringify(value))
-  }
-})
+// Mock crypto.randomUUID for testing
+if (!testGlobal.crypto.randomUUID) {
+  let counter = 0
+  testGlobal.crypto.randomUUID = () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`
+}
 
 test("saveEncounters strips audio_blob before persistence", async () => {
   // Clear storage

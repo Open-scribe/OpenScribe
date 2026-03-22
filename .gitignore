@@ -26,3 +26,4 @@ yarn-error.log*
 local-only/openscribe-backend/ollama_startup_report.json
 local-only/openscribe-backend/recorder_state.json
 local-only/openscribe-backend/config.json
+local-only/openemr-rsa384-private.key

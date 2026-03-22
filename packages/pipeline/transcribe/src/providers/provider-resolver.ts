@@ -1,6 +1,7 @@
 import { transcribeWavBuffer as transcribeWithMedASR } from "./medasr-transcriber"
 import { transcribeWavBuffer as transcribeWithWhisperLocal } from "./whisper-local-transcriber"
 import { transcribeWavBuffer as transcribeWithWhisperOpenAI } from "./whisper-transcriber"
+import { PipelineStageError } from "../../../shared/src/error"
 
 export type TranscriptionProvider = "whisper_local" | "whisper_openai" | "medasr"
 
@@ -18,6 +19,7 @@ function normalizeProvider(rawProvider: string | undefined): string {
 }
 
 export function resolveTranscriptionProvider(env: NodeJS.ProcessEnv = process.env): ResolvedTranscriptionProvider {
+  const hipaaHostedMode = env.HIPAA_HOSTED_MODE === "true"
   const provider = normalizeProvider(env.TRANSCRIPTION_PROVIDER)
 
   if (provider === "medasr" || provider === "med_asr") {
@@ -28,6 +30,13 @@ export function resolveTranscriptionProvider(env: NodeJS.ProcessEnv = process.en
   }
 
   if (provider === "whisper_openai" || provider === "whisper-openai" || provider === "openai" || provider === "whisper") {
+    if (hipaaHostedMode) {
+      throw new PipelineStageError(
+        "configuration_error",
+        "whisper_openai is disabled in HIPAA hosted mode. Use internal whisper_local service.",
+        false,
+      )
+    }
     return {
       provider: "whisper_openai",
       model: env.WHISPER_OPENAI_MODEL?.trim() || DEFAULT_WHISPER_OPENAI_MODEL,

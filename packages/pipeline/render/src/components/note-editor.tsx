@@ -6,7 +6,7 @@ import { Button } from "@ui/lib/ui/button"
 import { Textarea } from "@ui/lib/ui/textarea"
 import { Badge } from "@ui/lib/ui/badge"
 import { ScrollArea } from "@ui/lib/ui/scroll-area"
-import { Save, Copy, Download, Check, AlertTriangle, Send, X, MessageSquare, Loader2 } from "lucide-react"
+import { Save, Copy, Download, Check, AlertTriangle, Send, X, MessageSquare, Loader2, Upload } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@ui/lib/utils"
 
@@ -21,8 +21,47 @@ interface NoteEditorProps {
   onSave: (noteText: string) => void
 }
 
+// Note: this constant is intentionally duplicated from apps/web where
+// NEXT_PUBLIC_* vars are inlined at build time. This package can't import
+// from apps/web, and the duplication is minimal and explicit.
+const OPENEMR_ENABLED = process.env.NEXT_PUBLIC_OPENEMR_ENABLED === "true"
+
 type TabType = "note" | "transcript"
 type OpenClawInitState = "idle" | "sending" | "sent" | "failed"
+type OpenEMRPushState = "idle" | "pushing" | "success" | "failed"
+type OpenEMRPreflight = {
+  configured: boolean
+  auth_ok: boolean
+  patient_id_valid: boolean
+  patient_resolvable: boolean
+  note_ok: boolean
+  can_push: boolean
+  document_verified: boolean | null
+  blockers: Array<{ code: string; message: string }>
+  token_state: {
+    has_token: boolean
+    source: "persisted" | "env" | "none"
+    last_refresh_attempt: string | null
+    last_refresh_error: string | null
+  }
+}
+type OpenEMRPushResponse =
+  | {
+      success: true
+      id: string
+      uploadedAt: string
+      verifiedPreview: string
+      verifiedLength: number
+      openEMRDocumentUrl: string | null
+    }
+  | { success: false; error?: string; code?: string }
+type OpenEMRAuthSetupResponse =
+  | {
+      success: true
+      message: string
+      mode: "user" | "service"
+    }
+  | { success: false; error?: string; code?: string }
 
 type OpenClawPayload = {
   source: "openscribe"
@@ -57,6 +96,17 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
   const [copied, setCopied] = useState(false)
   const [saved, setSaved] = useState(false)
 
+  const [openEMRPushState, setOpenEMRPushState] = useState<OpenEMRPushState>("idle")
+  const [openEMRError, setOpenEMRError] = useState("")
+  const [openEMRPreflight, setOpenEMRPreflight] = useState<OpenEMRPreflight | null>(null)
+  const [openEMRPreflightLoading, setOpenEMRPreflightLoading] = useState(false)
+  const [openEMRPreflightError, setOpenEMRPreflightError] = useState("")
+  const [openEMRAuthSetupState, setOpenEMRAuthSetupState] = useState<"idle" | "setting_up" | "failed" | "done">("idle")
+  const [openEMRAuthSetupMessage, setOpenEMRAuthSetupMessage] = useState("")
+  const [openEMRPushResult, setOpenEMRPushResult] = useState<Extract<OpenEMRPushResponse, { success: true }> | null>(
+    null,
+  )
+
   const [openClawAvailable, setOpenClawAvailable] = useState(false)
   const [openClawPanelOpen, setOpenClawPanelOpen] = useState(false)
   const [openClawInitState, setOpenClawInitState] = useState<OpenClawInitState>("idle")
@@ -77,6 +127,14 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
     setOpenClawMessages([])
     setOpenClawInput("")
     setOpenClawSending(false)
+    setOpenEMRPushState("idle")
+    setOpenEMRError("")
+    setOpenEMRPreflight(null)
+    setOpenEMRPreflightLoading(false)
+    setOpenEMRPreflightError("")
+    setOpenEMRAuthSetupState("idle")
+    setOpenEMRAuthSetupMessage("")
+    setOpenEMRPushResult(null)
   }, [encounter.id, encounter.note_text])
 
   useEffect(() => {
@@ -100,6 +158,13 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
     setNoteMarkdown(value)
     setHasChanges(true)
     setSaved(false)
+    if (openEMRPushState === "failed" || openEMRPushState === "success") {
+      setOpenEMRPushState("idle")
+      setOpenEMRError("")
+    }
+    if (openEMRPushResult) {
+      setOpenEMRPushResult(null)
+    }
   }
 
   const handleSave = () => {
@@ -248,16 +313,7 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
   }
 
   const buildInitialHandoffMessage = (): string => {
-    const payload: OpenClawPayload = {
-      source: "openscribe",
-      encounterId: encounter.id,
-      patientName: encounter.patient_name || "",
-      patientId: encounter.patient_id || "",
-      visitReason: encounter.visit_reason || "",
-      noteMarkdown,
-      transcript: encounter.transcript_text || "",
-      requestedAction: "openemr_apply_note",
-    }
+    const payload = buildOpenClawPayload()
 
     return [
       "You are receiving a structured handoff from OpenScribe.",
@@ -278,6 +334,111 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
       "Transcript (optional context):",
       payload.transcript || "(missing)",
     ].join("\n")
+  }
+
+  const buildOpenClawPayload = (): OpenClawPayload => {
+    return {
+      source: "openscribe",
+      encounterId: encounter.id,
+      patientName: encounter.patient_name || "",
+      patientId: encounter.patient_id || "",
+      visitReason: encounter.visit_reason || "",
+      noteMarkdown,
+      transcript: encounter.transcript_text || "",
+      requestedAction: "openemr_apply_note",
+    }
+  }
+
+  const runOpenEMRPreflight = async (documentId?: string) => {
+    if (!OPENEMR_ENABLED) return
+    setOpenEMRPreflightLoading(true)
+    setOpenEMRPreflightError("")
+    try {
+      const params = new URLSearchParams({
+        patientId: encounter.patient_id || "",
+        noteMarkdown,
+      })
+      params.set("_ts", String(Date.now()))
+      if (documentId) params.set("documentId", documentId)
+      const resp = await fetch(`/api/integrations/openemr/status?${params.toString()}`, { cache: "no-store" })
+      const data = (await resp.json()) as OpenEMRPreflight
+      setOpenEMRPreflight(data)
+    } catch (err) {
+      setOpenEMRPreflightError(err instanceof Error ? err.message : "Failed to run OpenEMR preflight.")
+    } finally {
+      setOpenEMRPreflightLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!OPENEMR_ENABLED || activeTab !== "note") return
+    const timer = setTimeout(() => {
+      void runOpenEMRPreflight(openEMRPushResult?.id)
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [activeTab, encounter.patient_id, noteMarkdown, openEMRPushResult?.id])
+
+  const handleVerifyOpenEMRUpload = async () => {
+    if (!openEMRPushResult?.id) return
+    await runOpenEMRPreflight(openEMRPushResult.id)
+  }
+
+  const handlePushToOpenEMR = async () => {
+    if (!openEMRPreflight?.can_push) {
+      setOpenEMRPushState("failed")
+      const firstBlocker = openEMRPreflight?.blockers?.[0]?.message
+      setOpenEMRError(firstBlocker || "OpenEMR preflight checks are failing. Resolve blockers and retry.")
+      return
+    }
+    setOpenEMRPushState("pushing")
+    setOpenEMRError("")
+    try {
+      const resp = await fetch("/api/integrations/openemr/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          encounterId: encounter.id,
+          patientId: encounter.patient_id || "",
+          noteMarkdown,
+          patientName: encounter.patient_name || "",
+          visitReason: encounter.visit_reason || "",
+        }),
+      })
+      const data = (await resp.json()) as OpenEMRPushResponse
+      if (data.success) {
+        setOpenEMRPushState("success")
+        setOpenEMRPushResult(data)
+        await runOpenEMRPreflight(data.id)
+      } else {
+        setOpenEMRPushState("failed")
+        setOpenEMRError(data.error || "OpenEMR push failed.")
+      }
+    } catch (err) {
+      setOpenEMRPushState("failed")
+      setOpenEMRError(err instanceof Error ? err.message : "OpenEMR push failed.")
+    }
+  }
+
+  const handleSetupOpenEMRAuth = async () => {
+    setOpenEMRAuthSetupState("setting_up")
+    setOpenEMRAuthSetupMessage("")
+    try {
+      const resp = await fetch("/api/integrations/openemr/auth/setup", {
+        method: "POST",
+      })
+      const data = (await resp.json()) as OpenEMRAuthSetupResponse
+      if (data.success) {
+        setOpenEMRAuthSetupState("done")
+        setOpenEMRAuthSetupMessage(data.message || "OpenEMR auth is ready.")
+        await runOpenEMRPreflight(openEMRPushResult?.id)
+      } else {
+        setOpenEMRAuthSetupState("failed")
+        setOpenEMRAuthSetupMessage(data.error || "OpenEMR auth setup failed.")
+      }
+    } catch (err) {
+      setOpenEMRAuthSetupState("failed")
+      setOpenEMRAuthSetupMessage(err instanceof Error ? err.message : "OpenEMR auth setup failed.")
+    }
   }
 
   const handleOpenOpenClawChat = async () => {
@@ -303,6 +464,13 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
       await sendChatTurn(initialMessage, { isInitial: true })
     }
   }
+
+  const firstOpenEMRBlocker = openEMRPreflight?.blockers?.[0]?.message || openEMRPreflightError
+  const hasOpenEMRAuthBlocker = Boolean(
+    openEMRPreflight?.blockers?.some((blocker) =>
+      blocker.code === "OPENEMR_AUTH_INVALID" || blocker.code === "OPENEMR_AUTH_EXPIRED",
+    ),
+  )
 
   const handleSendUserMessage = async () => {
     const text = openClawInput.trim()
@@ -412,6 +580,37 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
                   </span>
                 </Button>
               )}
+              {activeTab === "note" && OPENEMR_ENABLED && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handlePushToOpenEMR}
+                  disabled={
+                    openEMRPushState === "pushing" ||
+                    openEMRPreflightLoading ||
+                    !openEMRPreflight?.can_push
+                  }
+                  className="h-8 rounded-full px-3 text-muted-foreground hover:text-foreground"
+                  title={!openEMRPreflight?.can_push ? (firstOpenEMRBlocker || "Resolve OpenEMR blockers before pushing.") : undefined}
+                >
+                  {openEMRPushState === "pushing" || openEMRPreflightLoading ? (
+                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                  ) : openEMRPushState === "success" ? (
+                    <Check className="h-4 w-4 mr-1.5" />
+                  ) : (
+                    <Upload className="h-4 w-4 mr-1.5" />
+                  )}
+                  <span className="text-xs">
+                    {openEMRPushState === "pushing"
+                      ? "Pushing..."
+                      : openEMRPreflightLoading
+                        ? "Checking..."
+                      : openEMRPushState === "success"
+                        ? "Pushed to OpenEMR"
+                        : "Push to OpenEMR"}
+                  </span>
+                </Button>
+              )}
               {activeTab === "note" && (
                 <Button
                   size="sm"
@@ -444,6 +643,78 @@ export function NoteEditor({ encounter, onSave }: NoteEditorProps) {
                   <div className="mt-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span>{openClawError}</span>
+                  </div>
+                )}
+                {openEMRError && openEMRPushState === "failed" && (
+                  <div className="mt-3 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{openEMRError}</span>
+                  </div>
+                )}
+                {OPENEMR_ENABLED && (openEMRPreflightError || (openEMRPreflight && !openEMRPreflight.can_push)) && (
+                  <div className="mt-3 rounded-lg border border-amber-400/40 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    <p className="font-medium">OpenEMR blockers</p>
+                    {openEMRPreflightError ? (
+                      <p className="mt-1">{openEMRPreflightError}</p>
+                    ) : (
+                      <ul className="mt-1 space-y-1">
+                        {openEMRPreflight?.blockers.map((blocker) => (
+                          <li key={blocker.code}>
+                            <span className="font-mono mr-1">{blocker.code}:</span>
+                            {blocker.message}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {hasOpenEMRAuthBlocker && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleSetupOpenEMRAuth}
+                          disabled={openEMRAuthSetupState === "setting_up"}
+                          className="h-7 px-2"
+                        >
+                          {openEMRAuthSetupState === "setting_up" ? "Setting up auth..." : "Set up OpenEMR auth"}
+                        </Button>
+                        {openEMRAuthSetupMessage && <span>{openEMRAuthSetupMessage}</span>}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {openEMRPushResult && (
+                  <div className="mt-3 rounded-lg border border-emerald-300/50 bg-emerald-50 px-3 py-3 text-xs text-emerald-950">
+                    <p className="font-medium">Uploaded to OpenEMR</p>
+                    <p className="mt-1">
+                      Document ID: <span className="font-mono">{openEMRPushResult.id}</span>
+                    </p>
+                    <p>
+                      Uploaded at: <span className="font-mono">{openEMRPushResult.uploadedAt}</span>
+                    </p>
+                    <p>Verified length: {openEMRPushResult.verifiedLength} chars</p>
+                    <p className="mt-1 whitespace-pre-wrap break-words">
+                      Preview: {openEMRPushResult.verifiedPreview || "(empty)"}
+                    </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Button variant="ghost" size="sm" onClick={handleVerifyOpenEMRUpload} className="h-7 px-2">
+                        Verify Again
+                      </Button>
+                      {openEMRPushResult.openEMRDocumentUrl && (
+                        <a
+                          href={openEMRPushResult.openEMRDocumentUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline"
+                        >
+                          Open in OpenEMR
+                        </a>
+                      )}
+                      {openEMRPreflight?.document_verified !== null && (
+                        <span className="font-medium">
+                          {openEMRPreflight?.document_verified ? "Verified" : "Not verified"}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
               </>
