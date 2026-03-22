@@ -27,7 +27,7 @@
     "test:e2e:real": "pnpm build:test && node --test build/tests-dist/pipeline/eval/src/tests/e2e-real-api.test.js",
     "test:api": "pnpm build:test && node --test build/tests-dist/pipeline/eval/src/tests/api-simple.test.js",
     "test:no-phi-logs": "node scripts/check-no-phi-logs.mjs",
-    "test:llm": "pnpm build:test && find build/tests-dist/llm/src/__tests__ -name \"*.test.js\" -print0 | xargs -0 node --test",
+    "test:llm": "pnpm build:test && find build/tests-dist/packages/llm/src/__tests__ -name \"*.test.js\" -print0 | xargs -0 node --test",
     "test:note": "pnpm build:test && find build/tests-dist/pipeline/note-core/src/__tests__ -name \"*.test.js\" -print0 | xargs -0 node --test",
     "build:desktop": "node scripts/build-desktop.mjs current",
     "build:desktop:all": "node scripts/build-desktop.mjs all",
