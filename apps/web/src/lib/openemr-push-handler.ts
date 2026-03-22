@@ -69,8 +69,18 @@ export async function handlePushRequest(
   const result = await pushFn(params)
 
   if (result.success) {
-    return { status: 200, json: { success: true, id: result.id } }
+    return {
+      status: 200,
+      json: {
+        success: true,
+        id: result.id,
+        uploadedAt: result.uploadedAt,
+        verifiedPreview: result.verifiedPreview,
+        verifiedLength: result.verifiedLength,
+        openEMRDocumentUrl: result.openEMRDocumentUrl,
+      },
+    }
   } else {
-    return { status: 500, json: { success: false, error: result.error } }
+    return { status: 500, json: { success: false, error: result.error, code: result.code } }
   }
 }

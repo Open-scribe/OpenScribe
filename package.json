@@ -50,7 +50,8 @@
     "download:ollama": "bash local-only/openscribe-backend/scripts/download-ollama.sh",
     "medgemma:scribe": "node scripts/medgemma-scribe.mjs",
     "medscribe:local": ". .venv-med/bin/activate && python scripts/local_medscribe.py",
-    "db:migrate": "node scripts/run-db-migrations.mjs"
+    "db:migrate": "node scripts/run-db-migrations.mjs",
+    "openemr:ensure-patient": "bash scripts/openemr-ensure-patient.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
