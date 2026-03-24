@@ -2,7 +2,7 @@
 
 Use this if you want to install and run OpenScribe without cloning the repo.
 
-## 1. Download the installer
+## 1. Download the Installer
 - Open the latest release page: `https://github.com/sammargolis/OpenScribe/releases/latest`
 - Download the file that matches your OS:
   - macOS Apple Silicon: `OpenScribe-<version>-arm64.dmg`
@@ -17,16 +17,16 @@ Use this if you want to install and run OpenScribe without cloning the repo.
 - Linux AppImage: `chmod +x OpenScribe-*.AppImage` then run it.
 - Linux deb: `sudo dpkg -i OpenScribe-*.deb`.
 
-## 3. First launch and setup
+## 3. First Launch and Setup
 - Open OpenScribe and allow microphone permission when prompted.
 - Complete the first-run setup wizard:
   - runtime checks
   - local Whisper setup
   - curated local model selection
   - model download with progress
-- Keep mixed mode as default if you have cloud keys; switch to local-only after setup if preferred.
+- Keep mixed mode as the default if you have cloud keys; switch to local-only after setup if preferred.
 
-## 4. Basic validation after install
+## 4. Basic Validation After Install
 - Start a short recording.
 - Stop recording and confirm transcription appears.
 - Generate a note and verify output is saved in encounter history.

@@ -119,7 +119,7 @@ Options:
 
 **Note:** You still need an Anthropic API key for hosted clinical note generation (LLM).
 
-## Switching to MedASR in the app
+## Switching to MedASR in the App
 
 If you prefer to use MedASR locally instead of OpenAI Whisper:
 
@@ -144,7 +144,7 @@ export { transcribeWavBuffer } from "./providers/medasr-transcriber"
 - Speed: ~15-30 seconds per 10-second audio segment
 - Memory: ~2-4GB RAM
 
-For faster transcription, use a CUDA GPU or accept slightly slower CPU transcription.
+For faster transcription, use a CUDA GPU, or accept slightly slower CPU transcription.
 
 ## Troubleshooting
 

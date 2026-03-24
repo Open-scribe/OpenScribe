@@ -13,7 +13,7 @@
   - `local` mode requires guided setup completion
 
 ## Hard Blockers (Must Pass)
-- All 5 target artifacts built and published with checksums + manifest:
+- All five target artifacts built and published with checksums + manifest:
   - `mac/x64`, `mac/arm64`, `windows/x64`, `linux/x64`, `linux/arm64`
 - Installer/runtime E2E smoke passes on each target:
   - clean environment provision
