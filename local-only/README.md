@@ -17,11 +17,11 @@ This directory contains the **current local runtime** used by the Electron app b
 
 - Telemetry
   - Desktop telemetry is disabled by default.
-  - Users can opt-in later in app settings.
+  - Users can opt in later in app settings.
 
 ## Important Clarification
 
-Legacy MedASR/MedGemma docs/scripts still exist in parts of this repo, but the active Electron local backend path is the `openscribe-backend` stack above (Whisper + Ollama).
+Legacy MedASR/MedGemma docs and scripts still exist in parts of this repo, but the active Electron local backend path is the `openscribe-backend` stack above (Whisper + Ollama).
 
 ## Entry Points
 

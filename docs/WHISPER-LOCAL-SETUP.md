@@ -25,7 +25,7 @@ This command will:
 - create/check backend venv
 - install backend deps if missing
 - create `apps/web/.env.local` if missing
-- start local Whisper (`tiny.en + whisper.cpp + GPU`)
+- start local Whisper (`tiny.en + whisper.cpp`, using acceleration when available)
 - start Next.js web app
 
 ## 3. Verify health

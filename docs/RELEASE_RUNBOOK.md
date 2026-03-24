@@ -2,7 +2,7 @@
 
 This is the shortest repeatable path to produce downloadable installers and publish them for users.
 
-## Pre-release requirements
+## Pre-release Requirements
 - Signing secrets configured in GitHub Actions:
   - `CSC_LINK`, `CSC_KEY_PASSWORD`
   - `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`
@@ -34,8 +34,8 @@ git push origin v0.1.0
 
 ## 4. Manual sign-off
 - Complete [MANUAL_SIGNOFF_TEMPLATE.md](./MANUAL_SIGNOFF_TEMPLATE.md):
-  - one human run on macOS, Windows, Linux
-  - first-run setup + recording/transcription/note generation sanity
+  - One human run on macOS, Windows, and Linux
+  - First-run setup + recording/transcription/note generation sanity
 
 ## 5. Mark GA ready
 - Update [RELEASE_READINESS_CHECKLIST.md](./RELEASE_READINESS_CHECKLIST.md) with evidence links.

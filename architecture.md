@@ -1,7 +1,6 @@
 # OpenScribe Architecture
 
-This document describes how the repository is structured today, why each
-folder exists, and where new code should live as the system grows.
+This document describes how the repository is structured today, why each folder exists, and where new code should live as the system grows.
 
 ---
 
@@ -33,7 +32,7 @@ No other source files should sit at the root—add them to the appropriate
     next-env.d.ts
     next.config.mjs         # re-exports config/next.config.mjs
     postcss.config.mjs      # re-exports config/postcss.config.mjs
-    tailwind.config.ts      # Tailwind v4 config (scans app + packages)
+    tailwind.config.mjs     # Tailwind v4 config (scans app + packages)
     src/
       app/                  # routes, layouts, server actions, CSS entry point
       middleware.ts
@@ -53,8 +52,7 @@ No other source files should sit at the root—add them to the appropriate
 
 The `packages/` directory acts like a pnpm workspace. Each folder hosts an
 isolated TypeScript package with its own `src/` tree. Path aliases defined in
-`tsconfig.json` (e.g., `@audio`, `@storage`, `@ui`) map into these packages,
-so apps can import domain logic without relative paths.
+`tsconfig.json` (e.g., `@audio`, `@storage`, `@ui`) map into these packages so apps can import domain logic without relative paths.
 
 ### `packages/pipeline`
 
@@ -518,4 +516,3 @@ Centralized tool configuration
 | Desktop window | `packages/shell/main.js` |
 | Server action | `apps/web/src/app/actions.ts` |
 | Shared hook | `packages/ui/src/hooks/` |
-

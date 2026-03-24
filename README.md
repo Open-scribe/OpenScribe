@@ -21,11 +21,9 @@ Open-source AI medical scribe for recording encounters and generating structured
 </div>
 
 
-# OpenScribe
-
 ## Project Overview
 
-OpenScribe is a free MIT license open source AI Medical Scribe that helps clinicians record patient encounters, transcribe audio, and generate structured draft clinical notes using LLMs. The default web deployment path is mixed mode: local Whisper transcription + Anthropic Claude note generation. A fully local desktop path is also available forked from [StenoAI](https://github.com/ruzin/stenoai).
+OpenScribe is a free, MIT-licensed, open-source AI medical scribe that helps clinicians record patient encounters, transcribe audio, and generate structured draft clinical notes using LLMs. The default web deployment path is mixed mode: local Whisper transcription + Anthropic Claude note generation. A fully local desktop path is also available, forked from [StenoAI](https://github.com/ruzin/stenoai).
 
 - [Demo](https://www.loom.com/share/1ccd4eec00eb4ddab700d32734f33c28)
 - [Architecture](./architecture.md)
@@ -33,8 +31,7 @@ OpenScribe is a free MIT license open source AI Medical Scribe that helps clinic
 - [Download and Use Desktop](./docs/DOWNLOAD_AND_USE.md)
 - [Desktop Release Runbook](./docs/RELEASE_RUNBOOK.md)
 
-
-The current project is not yet HIPAA compliant; however, we recently signed up with Delve and will be HIPAA compliant in the next few weeks.
+OpenScribe is not HIPAA compliant yet. The team is actively working toward HIPAA compliance.
 
 ## Demo
 
@@ -59,7 +56,8 @@ Full guide: [docs/DOWNLOAD_AND_USE.md](./docs/DOWNLOAD_AND_USE.md)
 
 ```bash
 node --version  # Check you have Node.js 18+
-# If not installed: brew install node if version < 18: brew upgrade node  (macOS) or download latest from nodejs.org
+# If not installed (macOS): brew install node
+# If installed but <18 (macOS): brew upgrade node
 npm install -g pnpm
 ```
 

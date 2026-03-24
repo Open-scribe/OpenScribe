@@ -2,12 +2,12 @@
 
 This keeps the main OpenScribe setup intact and adds a **fully local** option.
 
-## Prereqs (Mac M1/M2)
+## Prerequisites (Mac M1/M2)
 - Python 3.11
 - Node 18+
 - Homebrew
 
-## 1) Python env
+## 1) Python Environment
 ```bash
 cd /path/to/repo
 python3.11 -m venv .venv-med
@@ -36,7 +36,7 @@ python ./scripts/local_medscribe.py \
   --allow-download
 ```
 
-## 4) Convert and quantize MedGemma
+## 4) Convert and Quantize MedGemma
 This step is required for local LLM inference:
 
 ```bash
@@ -55,7 +55,7 @@ $SCRIPT_PATH \
   Q4_K_M
 ```
 
-## 5) Run local-only pipeline
+## 5) Run Local-Only Pipeline
 ```bash
 python ./scripts/local_medscribe.py \
   --audio /path/to/audio.wav

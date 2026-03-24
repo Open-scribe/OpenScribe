@@ -1,8 +1,8 @@
 # OpenScribe Desktop Manual Sign-off (GA)
 
-Release version: `__________`  
-Date: `__________`  
-Reviewer: `__________`
+- Release version: `__________`
+- Date: `__________`
+- Reviewer: `__________`
 
 ## Platform Checks
 
