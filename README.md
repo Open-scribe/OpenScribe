@@ -39,6 +39,18 @@ OpenScribe is not HIPAA compliant yet. The team is actively working toward HIPAA
 
 [![Watch Demo](.github/demo.gif)](https://www.loom.com/share/1ccd4eec00eb4ddab700d32734f33c28)
 
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=Open-scribe%2FOpenScribe&type=timeline&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=Open-scribe/OpenScribe&type=timeline&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=Open-scribe/OpenScribe&type=timeline&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=Open-scribe/OpenScribe&type=timeline&legend=top-left" />
+ </picture>
+</a>
+
+
 ## Download Desktop App (No Dev Setup)
 
 If you only want to try OpenScribe as an app:
