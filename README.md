@@ -275,7 +275,7 @@ does not perform speech-to-text. See
 - User responsibility (device security, physical access)
 
 ### Future Goals (v2.0+)
-- Package app to be able to run 100% locally with transciption model and small 7b model for note generation
+- Package app to be able to run 100% locally with transcription model and small 7b model for note generation
 - Multiple LLM providers (Anthropic, local models)
 - Custom note templates
 - Optional cloud sync (user-controlled)
