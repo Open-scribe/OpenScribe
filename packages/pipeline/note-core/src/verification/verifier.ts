@@ -7,7 +7,7 @@ const STOP_WORDS = new Set([
 ])
 
 export function tokenize(text: string): string[] {
-  const normalized = (text || "").toLowerCase().replace(/[^\w\-]+/g, " ").trim()
+  const normalized = (text || "").toLowerCase().replace(/[^\w-]+/g, " ").trim()
   if (!normalized) return []
   return normalized.split(/\s+/).filter((token) => token.length >= 2 && !STOP_WORDS.has(token))
 }
