@@ -9,7 +9,7 @@ import { Label } from "@ui/lib/ui/label"
 import { Mic } from "lucide-react"
 
 interface NewEncounterFormProps {
-  onStart: (data: { patient_name: string; patient_id: string; visit_reason: string; consent_given: boolean }) => void
+  onStart: (data: { patient_name: string; patient_id: string; visit_reason: string }) => void
   onCancel: () => void
 }
 
@@ -30,7 +30,6 @@ export function NewEncounterForm({ onStart, onCancel }: NewEncounterFormProps) {
       patient_name: patientName,
       patient_id: "",
       visit_reason: visitType,
-      consent_given: consentGiven,
     })
   }
 

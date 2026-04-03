@@ -985,7 +985,6 @@ function HomePageContent() {
     patient_name: string
     patient_id: string
     visit_reason: string
-    consent_given: boolean
   }) => {
     try {
       if (useLocalBackend) {
