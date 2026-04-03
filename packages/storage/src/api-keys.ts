@@ -10,6 +10,11 @@ export interface ApiKeys {
   anthropicApiKey: string
 }
 
+export interface MixedModeAuthStatus {
+  hasAnthropicKeyConfigured: boolean
+  source: "server_file" | "env" | "none"
+}
+
 const API_KEYS_STORAGE_KEY = "openscribe_api_keys"
 
 const DEFAULT_API_KEYS: ApiKeys = {
@@ -66,6 +71,22 @@ export async function setApiKeys(keys: Partial<ApiKeys>): Promise<void> {
   } catch (error) {
     console.error("Failed to save API keys:", error)
     throw error
+  }
+}
+
+export async function getMixedModeAuthStatus(): Promise<MixedModeAuthStatus> {
+  try {
+    const response = await fetch("/api/settings/mixed-auth-status", { method: "GET" })
+    if (!response.ok) {
+      return { hasAnthropicKeyConfigured: false, source: "none" }
+    }
+    const parsed = (await response.json()) as Partial<MixedModeAuthStatus>
+    return {
+      hasAnthropicKeyConfigured: !!parsed.hasAnthropicKeyConfigured,
+      source: parsed.source === "server_file" || parsed.source === "env" ? parsed.source : "none",
+    }
+  } catch {
+    return { hasAnthropicKeyConfigured: false, source: "none" }
   }
 }
 

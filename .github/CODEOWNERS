@@ -1,0 +1,13 @@
+# Global default
+* @sammargolis
+
+# Security-sensitive paths
+/apps/web/src/app/api/ @sammargolis
+/apps/web/src/middleware.ts @sammargolis
+/packages/storage/src/ @sammargolis
+/packages/pipeline/transcribe/src/ @sammargolis
+/packages/pipeline/assemble/src/ @sammargolis
+/config/ @sammargolis
+/infra/ @sammargolis
+/.github/workflows/ @sammargolis
+/docs/compliance/ @sammargolis

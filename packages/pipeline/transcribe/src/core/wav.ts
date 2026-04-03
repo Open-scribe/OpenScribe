@@ -1,3 +1,5 @@
+import { PipelineStageError } from "../../../shared/src/error"
+
 export interface WavInfo {
   sampleRate: number
   numChannels: number
@@ -16,14 +18,14 @@ function readString(view: DataView, offset: number, length: number): string {
 
 export function parseWavHeader(buffer: ArrayBuffer): WavInfo {
   if (buffer.byteLength < 44) {
-    throw new Error("WAV buffer too small")
+    throw new PipelineStageError("validation_error", "WAV buffer too small", true)
   }
 
   const view = new DataView(buffer)
   const riff = readString(view, 0, 4)
   const wave = readString(view, 8, 4)
   if (riff !== "RIFF" || wave !== "WAVE") {
-    throw new Error("Invalid WAV header")
+    throw new PipelineStageError("validation_error", "Invalid WAV header", true)
   }
 
   let offset = 12
@@ -40,7 +42,7 @@ export function parseWavHeader(buffer: ArrayBuffer): WavInfo {
     if (chunkId === "fmt ") {
       const audioFormat = view.getUint16(chunkStart, true)
       if (audioFormat !== 1) {
-        throw new Error("Only PCM WAV files are supported")
+        throw new PipelineStageError("validation_error", "Only PCM WAV files are supported", true)
       }
       numChannels = view.getUint16(chunkStart + 2, true)
       sampleRate = view.getUint32(chunkStart + 4, true)
@@ -54,7 +56,7 @@ export function parseWavHeader(buffer: ArrayBuffer): WavInfo {
   }
 
   if (!sampleRate || !numChannels || !bitDepth || !dataBytes) {
-    throw new Error("Incomplete WAV data")
+    throw new PipelineStageError("validation_error", "Incomplete WAV data", true)
   }
 
   const bytesPerSample = bitDepth / 8

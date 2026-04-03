@@ -65,7 +65,7 @@ describe("Secure Storage - Encryption Tests", () => {
     expect(stored.startsWith("enc.v2.")).toBe(true)
   })
   
-  it("should fail when encryption key is missing", async () => {
+  it("should generate and persist a browser key when env key is missing", async () => {
     // Remove the key
     delete process.env.NEXT_PUBLIC_SECURE_STORAGE_KEY
     
@@ -76,8 +76,9 @@ describe("Secure Storage - Encryption Tests", () => {
     
     const testData = { test: "data" }
     
-    // Should throw error about missing key
-    await expect(saveSecureItem("test", testData)).rejects.toThrow()
+    await expect(saveSecureItem("test", testData)).resolves.not.toThrow()
+    expect(mockLocalStorage.openscribe_encryption_key_web).toBeDefined()
+    expect(mockLocalStorage.test.startsWith("enc.v2.")).toBe(true)
   })
   
   it("should fail when encryption key is invalid length", async () => {

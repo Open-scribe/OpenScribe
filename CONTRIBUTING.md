@@ -3,8 +3,7 @@
 Thanks for your interest in contributing to OpenScribe.
 
 OpenScribe is an MIT-licensed, local-first, open-source AI medical scribe.
-The goal is to provide transparent, auditable infrastructure rather than a
-closed SaaS product.
+The goal is to provide transparent, auditable infrastructure rather than a closed SaaS product.
 
 ## Project Philosophy
 
@@ -43,7 +42,7 @@ High-priority contribution areas:
    ```
 4. Set up environment:
    ```bash
-   pnpm setup
+   pnpm run setup
    # Then edit apps/web/.env.local with your API keys
    ```
 5. Start the dev server:
@@ -58,7 +57,7 @@ High-priority contribution areas:
    ```bash
    git checkout -b feature/descriptive-name
    ```
-2. Make changes with clear commits
+2. Make changes in clear, focused commits
 3. Add or update tests where applicable
 4. Run tests:
    ```bash

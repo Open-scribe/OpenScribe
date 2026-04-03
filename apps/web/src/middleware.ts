@@ -32,5 +32,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/:path*"],
+  // Avoid running middleware on API routes so large multipart uploads
+  // (final audio blobs) are not subject to middleware body limits.
+  matcher: ["/((?!api).*)"],
 }

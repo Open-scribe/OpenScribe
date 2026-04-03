@@ -1,3 +1,5 @@
+import { toPipelineError, type PipelineError } from "../../shared/src/error"
+
 type TranscriptionStatus = "recording" | "finalizing" | "completed" | "error"
 
 export interface SegmentMetadata {
@@ -61,6 +63,8 @@ class TranscriptionSessionStore {
   constructor() {
     // Run cleanup every 5 minutes
     this.cleanupInterval = setInterval(() => this.cleanupOldSessions(), 5 * 60 * 1000)
+    // Do not keep test/CLI processes alive just for periodic cleanup.
+    if (this.cleanupInterval?.unref) this.cleanupInterval.unref()
   }
 
   private cleanupOldSessions() {
@@ -190,7 +194,7 @@ class TranscriptionSessionStore {
     session.finalTranscript = transcript
     session.status = "completed"
     this.sessionTimestamps.set(sessionId, Date.now()) // Update timestamp on completion
-    console.log(`[SessionStore] Session ${sessionId} completed with ${transcript.length} chars`)
+    console.log(`[SessionStore] Session ${sessionId} marked complete`)
     this.emit(session, {
       event: "final",
       data: {
@@ -200,15 +204,22 @@ class TranscriptionSessionStore {
     })
   }
 
-  emitError(sessionId: string, code: string, message: string) {
+  emitError(sessionId: string, error: PipelineError | Error | unknown) {
     const session = this.getSession(sessionId)
     session.status = "error"
+    const normalizedError = toPipelineError(error, {
+      code: "assembly_error",
+      message: "Failed to assemble transcript",
+      recoverable: true,
+    })
     this.emit(session, {
       event: "error",
       data: {
         session_id: sessionId,
-        code,
-        message,
+        code: normalizedError.code,
+        message: normalizedError.message,
+        recoverable: normalizedError.recoverable,
+        details: normalizedError.details,
       },
     })
   }

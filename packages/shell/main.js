@@ -1,11 +1,22 @@
 const path = require('path');
-const { app, BrowserWindow, shell, dialog, ipcMain, systemPreferences, safeStorage } = require('electron');
+const { app, BrowserWindow, shell, dialog, ipcMain, systemPreferences, safeStorage, globalShortcut } = require('electron');
 const { ensureNextServer, stopNextServer } = require('./next-server');
 const crypto = require('crypto');
+const {
+  registerOpenScribeIpcHandlers,
+  registerGlobalHotkey,
+  initTelemetry,
+  shutdownTelemetry,
+  trackEvent,
+  stopWhisperService,
+  runBackendHealthProbe,
+} = require('./openscribe-backend');
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 const DEV_SERVER_URL = process.env.ELECTRON_START_URL || 'http://localhost:3000';
 const isMac = process.platform === 'darwin';
+const enableDesktopDevtools = process.env.DEBUG_DESKTOP === '1';
+const isE2ESmoke = process.env.OPENSCRIBE_E2E_SMOKE === '1';
 
 // Set app name (for development mode and dock)
 if (app) {
@@ -37,6 +48,15 @@ const createMainWindow = async () => {
     return { action: 'deny' };
   });
 
+  // Allow explicit media permission requests from the renderer.
+  window.webContents.session.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission === 'media' || permission === 'display-capture') {
+      callback(true);
+      return;
+    }
+    callback(false);
+  });
+
   try {
     if (isDev) {
       await window.loadURL(DEV_SERVER_URL);
@@ -44,8 +64,9 @@ const createMainWindow = async () => {
     } else {
       const server = await ensureNextServer();
       await window.loadURL(server.url);
-      // Open DevTools in production temporarily for debugging CSS issue
-      window.webContents.openDevTools({ mode: 'detach' });
+      if (enableDesktopDevtools) {
+        window.webContents.openDevTools({ mode: 'detach' });
+      }
     }
   } catch (error) {
     dialog.showErrorBox(
@@ -97,6 +118,22 @@ const boot = async () => {
 
   registerPermissionHandlers();
   mainWindow = await createMainWindow();
+  registerOpenScribeIpcHandlers(mainWindow);
+  registerGlobalHotkey(mainWindow);
+  await initTelemetry();
+  trackEvent('app_opened');
+
+  if (isE2ESmoke) {
+    const probe = await runBackendHealthProbe();
+    if (!probe.success) {
+      console.error('OPENSCRIBE_E2E_SMOKE_FAIL', JSON.stringify(probe));
+      app.exit(1);
+      return;
+    }
+    console.log('OPENSCRIBE_E2E_SMOKE_PASS');
+    setTimeout(() => app.exit(0), 1200);
+    return;
+  }
 
   app.on('activate', async () => {
     // Get all windows including any that might be hidden or minimized
@@ -187,6 +224,7 @@ app.on('before-quit', async (event) => {
   }, 3000);
   
   try {
+    stopWhisperService();
     await stopNextServer();
     console.log('Cleanup complete');
   } catch (error) {
@@ -196,6 +234,12 @@ app.on('before-quit', async (event) => {
     // Now allow the app to quit
     app.exit(0);
   }
+});
+
+app.on('will-quit', async () => {
+  stopWhisperService();
+  globalShortcut.unregisterAll();
+  await shutdownTelemetry();
 });
 
 app.on('window-all-closed', () => {
@@ -263,6 +307,15 @@ function registerPermissionHandlers() {
     const settingsUrl = 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
     shell.openExternal(settingsUrl).catch((error) => {
       console.error('Failed to open screen permissions panel', error);
+    });
+    return true;
+  });
+
+  ipcMain.handle('media-permissions:open-microphone-settings', () => {
+    if (!isMac) return false;
+    const settingsUrl = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone';
+    shell.openExternal(settingsUrl).catch((error) => {
+      console.error('Failed to open microphone permissions panel', error);
     });
     return true;
   });
@@ -404,4 +457,3 @@ function registerPermissionHandlers() {
     }
   });
 }
-

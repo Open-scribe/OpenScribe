@@ -1,0 +1,14 @@
+.git
+.gitignore
+node_modules
+.pnpm-store
+apps/web/.next
+apps/web/.env.local
+apps/web/.env.*
+build
+tmp
+**/__pycache__
+**/*.pyc
+local-only/openscribe-backend/.venv-backend
+.venv-med
+recordings

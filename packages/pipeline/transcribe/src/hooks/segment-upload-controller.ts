@@ -1,3 +1,5 @@
+import { PipelineStageError, createPipelineError, toPipelineError, type PipelineError } from "../../../shared/src/error"
+
 export interface PendingSegment {
   seqNo: number
   startMs: number
@@ -7,13 +9,11 @@ export interface PendingSegment {
   blob: Blob
 }
 
-export interface UploadError {
-  code: "capture_error" | "validation_error" | "api_error" | "storage_error" | "network_error"
-  message: string
-}
+export type UploadError = PipelineError
 
 export interface SegmentUploadControllerOptions {
   onError?: (error: UploadError) => void
+  apiBaseUrl?: string
 }
 
 export interface SegmentUploadControllerDeps {
@@ -26,11 +26,15 @@ const MAX_RETRIES = 3
 
 class UploadException extends Error implements UploadError {
   code: UploadError["code"]
+  recoverable: boolean
+  details?: Record<string, unknown>
 
-  constructor(code: UploadError["code"], message: string) {
+  constructor(code: UploadError["code"], message: string, recoverable: boolean, details?: Record<string, unknown>) {
     super(message)
     this.name = "UploadException"
     this.code = code
+    this.recoverable = recoverable
+    this.details = details
   }
 }
 
@@ -46,6 +50,7 @@ export class SegmentUploadController {
   private readonly fetchFn: typeof fetch
   private readonly waitFn: (ms: number) => Promise<void>
   private readonly options?: SegmentUploadControllerOptions
+  private readonly apiBaseUrl?: string
 
   constructor(
     sessionId: string | null,
@@ -54,9 +59,10 @@ export class SegmentUploadController {
   ) {
     this.sessionId = sessionId
     this.options = options
+    this.apiBaseUrl = options?.apiBaseUrl
     this.fetchFn = deps?.fetchFn ?? globalThis.fetch.bind(globalThis)
     if (!this.fetchFn) {
-      throw new Error("fetch API is required for SegmentUploadController")
+      throw new PipelineStageError("configuration_error", "fetch API is required for SegmentUploadController", false)
     }
     this.waitFn = deps?.waitFn ?? defaultWait
   }
@@ -69,7 +75,7 @@ export class SegmentUploadController {
   enqueueSegment(segment: PendingSegment) {
     if (!this.sessionId) {
       console.warn('[SegmentUpload] Segment', segment.seqNo, 'dropped - session not initialized yet')
-      this.notifyError({ code: "capture_error", message: "Session not initialized" })
+      this.notifyError(createPipelineError("capture_error", "Session not initialized", true))
       return
     }
     this.queue.push(segment)
@@ -112,11 +118,12 @@ export class SegmentUploadController {
       if (error) {
         const uploadError: UploadError =
           error instanceof UploadException
-            ? { code: error.code, message: error.message }
-            : { 
-                code: "network_error", 
-                message: error instanceof Error ? error.message : String(error) || "Upload failed" 
-              }
+            ? createPipelineError(error.code, error.message, error.recoverable, error.details)
+            : toPipelineError(error, {
+                code: "network_error",
+                message: "Upload failed",
+                recoverable: true,
+              })
         console.error('[SegmentUpload] Final upload failure for segment', segment.seqNo, ':', uploadError.code, uploadError.message)
         this.notifyError(uploadError)
       }
@@ -139,7 +146,10 @@ export class SegmentUploadController {
     formData.append("file", segment.blob, `segment-${segment.seqNo}.wav`)
 
     try {
-      const response = await this.fetchFn("/api/transcription/segment", {
+      const url = this.apiBaseUrl
+        ? `${this.apiBaseUrl.replace(/\/+$/, "")}/api/transcription/segment`
+        : "/api/transcription/segment"
+      const response = await this.fetchFn(url, {
         method: "POST",
         body: formData,
       })
@@ -154,6 +164,10 @@ export class SegmentUploadController {
 
         const errorCode = errorBody?.error?.code || (response.status >= 500 ? "api_error" : "validation_error")
         const message = errorBody?.error?.message || `Upload failed with status ${response.status}`
+        const recoverable =
+          typeof errorBody?.error?.recoverable === "boolean"
+            ? errorBody.error.recoverable
+            : response.status === 429 || response.status >= 500
         const shouldRetry = (response.status === 429 || response.status >= 500) && attempt < MAX_RETRIES
 
         if (shouldRetry) {
@@ -161,7 +175,10 @@ export class SegmentUploadController {
           return this.uploadSegment(session, segment, attempt + 1)
         }
 
-        throw new UploadException(errorCode as UploadError["code"], message)
+        throw new UploadException(errorCode as UploadError["code"], message, recoverable, {
+          status: response.status,
+          endpoint: "segment_upload",
+        })
       }
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {

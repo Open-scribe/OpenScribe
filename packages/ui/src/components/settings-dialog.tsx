@@ -1,12 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { X, Eye, EyeOff } from "lucide-react"
+import { useState, useEffect, useRef } from "react"
+import { X } from "lucide-react"
 import { Button } from "@ui/lib/ui/button"
 import { Label } from "@ui/lib/ui/label"
-import { Input } from "@ui/lib/ui/input"
-import type { NoteLength } from "@storage/preferences"
-import { getApiKeys, setApiKeys, validateApiKey } from "@storage"
+import type { NoteLength, ProcessingMode } from "@storage/preferences"
 import { getAuditRetentionDays, setAuditRetentionDays, purgeAllAuditLogs } from "@storage/audit-log"
 import { AuditLogViewer } from "./audit-log-viewer"
 
@@ -15,63 +13,75 @@ interface SettingsDialogProps {
   onClose: () => void
   noteLength: NoteLength
   onNoteLengthChange: (length: NoteLength) => void
+  processingMode: ProcessingMode
+  onProcessingModeChange: (mode: ProcessingMode) => void | Promise<boolean>
+  localBackendAvailable: boolean
+  anthropicApiKey: string
+  onAnthropicApiKeyChange: (value: string) => void
+  onSaveAnthropicApiKey: (value: string) => Promise<void>
+  audioInputDevices: Array<{ id: string; label: string }>
+  preferredInputDeviceId?: string
+  onPreferredInputDeviceChange: (value: string) => void
+  micPermissionStatus?: string
+  mixedAuthSource?: "server_file" | "env" | "none"
+  lastMicReadinessMessage?: string
+  lastMicReadinessMetrics?: { rms: number; peak: number } | null
+  lastFailureCode?: string
+  onRunMicrophoneCheck: () => Promise<void>
 }
 
-export function SettingsDialog({ isOpen, onClose, noteLength, onNoteLengthChange }: SettingsDialogProps) {
-  const [openaiKey, setOpenaiKey] = useState("")
-  const [anthropicKey, setAnthropicKey] = useState("")
-  const [showOpenaiKey, setShowOpenaiKey] = useState(false)
-  const [showAnthropicKey, setShowAnthropicKey] = useState(false)
+export function SettingsDialog({
+  isOpen,
+  onClose,
+  noteLength,
+  onNoteLengthChange,
+  processingMode,
+  onProcessingModeChange,
+  localBackendAvailable,
+  anthropicApiKey,
+  onAnthropicApiKeyChange,
+  onSaveAnthropicApiKey,
+  audioInputDevices,
+  preferredInputDeviceId,
+  onPreferredInputDeviceChange,
+  micPermissionStatus,
+  mixedAuthSource,
+  lastMicReadinessMessage,
+  lastMicReadinessMetrics,
+  lastFailureCode,
+  onRunMicrophoneCheck,
+}: SettingsDialogProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState("")
   const [retentionDays, setRetentionDays] = useState(90)
   const [showAuditViewer, setShowAuditViewer] = useState(false)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const purgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     if (isOpen) {
-      void loadKeys()
       setRetentionDays(getAuditRetentionDays())
     }
   }, [isOpen])
 
-  const loadKeys = async () => {
-    try {
-      const keys = await getApiKeys()
-      setOpenaiKey(keys.openaiApiKey)
-      setAnthropicKey(keys.anthropicApiKey)
-    } catch (error) {
-      console.error("Failed to load API keys:", error)
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      if (purgeTimerRef.current) clearTimeout(purgeTimerRef.current)
     }
-  }
+  }, [])
 
   const handleSave = async () => {
     setIsSaving(true)
     setSaveMessage("")
 
     try {
-      // Validate keys if provided
-      if (openaiKey && !validateApiKey(openaiKey, "openai")) {
-        setSaveMessage("Invalid OpenAI API key format")
-        setIsSaving(false)
-        return
-      }
-
-      if (anthropicKey && !validateApiKey(anthropicKey, "anthropic")) {
-        setSaveMessage("Invalid Anthropic API key format")
-        setIsSaving(false)
-        return
-      }
-
-      await setApiKeys({
-        openaiApiKey: openaiKey,
-        anthropicApiKey: anthropicKey,
-      })
-
+      await onSaveAnthropicApiKey(anthropicApiKey)
       // Save retention policy
       setAuditRetentionDays(retentionDays)
 
       setSaveMessage("Settings saved successfully")
-      setTimeout(() => {
+      saveTimerRef.current = setTimeout(() => {
         setSaveMessage("")
         onClose()
       }, 1500)
@@ -91,7 +101,7 @@ export function SettingsDialog({ isOpen, onClose, noteLength, onNoteLengthChange
     try {
       await purgeAllAuditLogs()
       setSaveMessage("Audit logs purged successfully")
-      setTimeout(() => setSaveMessage(""), 2000)
+      purgeTimerRef.current = setTimeout(() => setSaveMessage(""), 2000)
     } catch (error) {
       console.error("Failed to purge audit logs:", error)
       setSaveMessage("Failed to purge audit logs")
@@ -119,73 +129,6 @@ export function SettingsDialog({ isOpen, onClose, noteLength, onNoteLengthChange
 
         {/* Settings Content */}
         <div className="space-y-6">
-          {/* API Keys Section */}
-          <div className="space-y-4">
-            <div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">API Keys</h3>
-              <p className="text-sm text-muted-foreground">
-                Configure your API keys for transcription and note generation
-              </p>
-            </div>
-
-            {/* OpenAI API Key */}
-            <div className="space-y-2">
-              <Label htmlFor="openai-key" className="text-sm font-medium text-foreground">
-                OpenAI API Key
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                Required for audio transcription (Whisper)
-              </p>
-              <div className="relative">
-                <Input
-                  id="openai-key"
-                  type={showOpenaiKey ? "text" : "password"}
-                  value={openaiKey}
-                  onChange={(e) => setOpenaiKey(e.target.value)}
-                  placeholder="sk-..."
-                  className="pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowOpenaiKey(!showOpenaiKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showOpenaiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Anthropic API Key */}
-            <div className="space-y-2">
-              <Label htmlFor="anthropic-key" className="text-sm font-medium text-foreground">
-                Anthropic API Key
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                Required for clinical note generation (Claude)
-              </p>
-              <div className="relative">
-                <Input
-                  id="anthropic-key"
-                  type={showAnthropicKey ? "text" : "password"}
-                  value={anthropicKey}
-                  onChange={(e) => setAnthropicKey(e.target.value)}
-                  placeholder="sk-ant-..."
-                  className="pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowAnthropicKey(!showAnthropicKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showAnthropicKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Divider */}
-          <div className="border-t border-border" />
-
           {/* Note Length Setting */}
           <div className="space-y-3">
             <Label className="text-base font-medium text-foreground">Note Length</Label>
@@ -220,6 +163,124 @@ export function SettingsDialog({ isOpen, onClose, noteLength, onNoteLengthChange
                 </div>
               </button>
             </div>
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-border" />
+
+          {/* Processing Mode */}
+          <div className="space-y-3">
+            <Label className="text-base font-medium text-foreground">Processing Mode</Label>
+            <p className="text-sm text-muted-foreground">
+              Choose the default desktop pipeline for transcription and note generation.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => onProcessingModeChange("mixed")}
+                className={`flex-1 rounded-lg border-2 p-4 text-left transition-all ${
+                  processingMode === "mixed"
+                    ? "border-foreground bg-accent"
+                    : "border-border hover:border-muted-foreground"
+                }`}
+              >
+                <div className="font-medium text-foreground">Mixed (Default)</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Local Whisper transcription + Claude note generation
+                </div>
+              </button>
+              <button
+                onClick={() => onProcessingModeChange("local")}
+                disabled={!localBackendAvailable}
+                className={`flex-1 rounded-lg border-2 p-4 text-left transition-all ${
+                  processingMode === "local"
+                    ? "border-foreground bg-accent"
+                    : "border-border hover:border-muted-foreground"
+                } ${!localBackendAvailable ? "cursor-not-allowed opacity-50" : ""}`}
+              >
+                <div className="font-medium text-foreground">Local-only</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Local Whisper + local Ollama note generation
+                </div>
+              </button>
+            </div>
+            {!localBackendAvailable && (
+              <p className="text-xs text-muted-foreground">
+                Local-only mode requires the desktop backend runtime to be available.
+              </p>
+            )}
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-border" />
+
+          {/* API Keys */}
+          <div className="space-y-3">
+            <Label className="text-base font-medium text-foreground">Cloud API Key (Mixed Mode)</Label>
+            <p className="text-sm text-muted-foreground">
+              Mixed mode requires an Anthropic key for note generation.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="anthropic-api-key" className="text-sm font-medium text-foreground">
+                Anthropic API Key
+              </Label>
+              <input
+                id="anthropic-api-key"
+                type="password"
+                value={anthropicApiKey}
+                onChange={(e) => onAnthropicApiKeyChange(e.target.value)}
+                placeholder="sk-ant-..."
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Mixed auth source: {mixedAuthSource || "none"}
+            </p>
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-border" />
+
+          {/* Audio Input */}
+          <div className="space-y-3">
+            <Label className="text-base font-medium text-foreground">Audio Input</Label>
+            <p className="text-sm text-muted-foreground">
+              Pick the microphone used for encounter capture and run a readiness check.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="preferred-input-device" className="text-sm font-medium text-foreground">
+                Microphone Device
+              </Label>
+              <select
+                id="preferred-input-device"
+                value={preferredInputDeviceId || ""}
+                onChange={(e) => onPreferredInputDeviceChange(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              >
+                <option value="">System default microphone</option>
+                {audioInputDevices.map((device) => (
+                  <option key={device.id} value={device.id}>
+                    {device.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => void onRunMicrophoneCheck()}>
+                Run Microphone Check
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">OS permission status: {micPermissionStatus || "unknown"}</p>
+            {lastMicReadinessMessage && (
+              <p className="text-xs text-muted-foreground">Last mic check: {lastMicReadinessMessage}</p>
+            )}
+            {lastMicReadinessMetrics && (
+              <p className="text-xs text-muted-foreground">
+                Last levels: RMS {lastMicReadinessMetrics.rms.toFixed(4)}, Peak {lastMicReadinessMetrics.peak.toFixed(4)}
+              </p>
+            )}
+            {lastFailureCode && <p className="text-xs text-muted-foreground">Last failure code: {lastFailureCode}</p>}
           </div>
 
           {/* Divider */}

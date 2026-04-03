@@ -1,15 +1,14 @@
 "use client"
 
-type DesktopScreenSource = {
-  id: string
-  name?: string
-}
-
 declare global {
-  interface Window {
-    desktop?: {
-      getPrimaryScreenSource?: () => Promise<DesktopScreenSource | null>
-    }
+  interface DesktopScreenSource {
+    id: string
+    name: string
+    displayId?: string
+  }
+
+  interface DesktopAPI {
+    getPrimaryScreenSource?: () => Promise<DesktopScreenSource | null>
   }
 }
 

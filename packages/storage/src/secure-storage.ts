@@ -4,6 +4,7 @@ const KEY_ENV = (process.env.NEXT_PUBLIC_SECURE_STORAGE_KEY ?? "").trim()
 const CURRENT_VERSION = "v2"
 const LEGACY_VERSION = "v1"
 const PREFIX_BASE = "enc"
+const WEB_FALLBACK_KEY_STORAGE = "openscribe_encryption_key_web"
 
 let keyPromise: Promise<CryptoKey> | null = null
 let electronKeyPromise: Promise<string | null> | null = null
@@ -63,10 +64,27 @@ async function getOrGenerateDeviceKey(): Promise<string> {
   }
   
   // Fallback to environment variable (legacy browser mode)
-  if (!KEY_ENV) {
-    throw new Error("NEXT_PUBLIC_SECURE_STORAGE_KEY must be configured in non-Electron environments.")
+  if (KEY_ENV) {
+    if (base64ToBytes(KEY_ENV).byteLength !== 32) {
+      throw new Error("NEXT_PUBLIC_SECURE_STORAGE_KEY must be a base64 encoded 256-bit key.")
+    }
+    return KEY_ENV
   }
-  return KEY_ENV
+
+  // Browser fallback for local-only/dev mode when env key is not configured.
+  if (typeof window !== "undefined") {
+    const storedKey = window.localStorage.getItem(WEB_FALLBACK_KEY_STORAGE)
+    if (storedKey && base64ToBytes(storedKey).byteLength === 32) {
+      return storedKey
+    }
+
+    const bytes = getCrypto().getRandomValues(new Uint8Array(32))
+    const generatedKey = bytesToBase64(bytes)
+    window.localStorage.setItem(WEB_FALLBACK_KEY_STORAGE, generatedKey)
+    return generatedKey
+  }
+
+  throw new Error("NEXT_PUBLIC_SECURE_STORAGE_KEY must be configured in non-Electron environments.")
 }
 
 function getCrypto(): Crypto {

@@ -390,10 +390,4 @@ test("Phase 6: Complete pipeline - audio to final transcript", { timeout: 10000 
   assert(events.length > 0, "Should emit events")
   
   console.log("✅✅✅ TEST 6 PASSED: COMPLETE PIPELINE WORKS! ✅✅✅\n")
-  
-  // Force exit after all tests complete to avoid hanging on setInterval timers
-  setTimeout(() => {
-    console.log("🏁 All tests complete - forcing process exit")
-    process.exit(0)
-  }, 100)
 })

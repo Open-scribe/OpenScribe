@@ -1,14 +1,66 @@
+<div align="center">
+
+<img src=".github/openscribe-banner.png" alt="OpenScribe Banner" width="5%" />
+
 # OpenScribe
 
-*"And you shall teach them diligently to your children" (Deuteronomy 6:7) - OpenScribe embodies the mitzvah of preserving and transmitting medical knowledge through ethical AI assistance.*
+Open-source AI medical scribe for recording encounters and generating structured clinical notes.
+
+<p>
+  <a href="https://github.com/sammargolis/OpenScribe/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT License">
+  </a>
+  <a href="https://discord.gg/BcNNspcNE8">
+    <img src="https://img.shields.io/badge/Discord-Join%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord">
+  </a>
+  <a href="https://www.loom.com/share/1ccd4eec00eb4ddab700d32734f33c28">
+    <img src="https://img.shields.io/badge/Demo-Watch-000000?style=for-the-badge" alt="Demo">
+  </a>
+</p>
+
+</div>
+
 
 ## Project Overview
 
-OpenScribe is a local first MIT license open source AI Medical Scribe that helps clinicians record patient encounters, transcribe audio, and generate structured draft clinical notes using LLMs. The tool stores all data locally by default.
+OpenScribe is a free, MIT-licensed, open-source AI medical scribe that helps clinicians record patient encounters, transcribe audio, and generate structured draft clinical notes using LLMs. The default web deployment path is mixed mode: local Whisper transcription + Anthropic Claude note generation. A fully local desktop path is also available, forked from [StenoAI](https://github.com/ruzin/stenoai).
 
-- [Demo](https://www.loom.com/share/659d4f09fc814243addf8be64baf10aa)
+- [Demo](https://www.loom.com/share/1ccd4eec00eb4ddab700d32734f33c28)
 - [Architecture](./architecture.md)
 - [Contributing](./CONTRIBUTING.md)
+- [Download and Use Desktop](./docs/DOWNLOAD_AND_USE.md)
+- [Desktop Release Runbook](./docs/RELEASE_RUNBOOK.md)
+
+OpenScribe is not HIPAA compliant yet. The team is actively working toward HIPAA compliance.
+
+## Demo
+
+[Demo](https://www.loom.com/share/1ccd4eec00eb4ddab700d32734f33c28)
+
+[![Watch Demo](.github/demo.gif)](https://www.loom.com/share/1ccd4eec00eb4ddab700d32734f33c28)
+
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=Open-scribe%2FOpenScribe&type=timeline&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=Open-scribe/OpenScribe&type=timeline&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=Open-scribe/OpenScribe&type=timeline&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=Open-scribe/OpenScribe&type=timeline&legend=top-left" />
+ </picture>
+</a>
+
+
+## Download Desktop App (No Dev Setup)
+
+If you only want to try OpenScribe as an app:
+
+1. Open [latest releases](https://github.com/sammargolis/OpenScribe/releases/latest).
+2. Download the installer for your OS/arch.
+3. Run installer and complete first-run setup wizard.
+
+Full guide: [docs/DOWNLOAD_AND_USE.md](./docs/DOWNLOAD_AND_USE.md)
+
 
 ## Quick Start (5 minutes)
 
@@ -16,7 +68,8 @@ OpenScribe is a local first MIT license open source AI Medical Scribe that helps
 
 ```bash
 node --version  # Check you have Node.js 18+
-# If not installed: brew install node if version < 18: brew upgrade node  (macOS) or download latest from nodejs.org
+# If not installed (macOS): brew install node
+# If installed but <18 (macOS): brew upgrade node
 npm install -g pnpm
 ```
 
@@ -28,25 +81,140 @@ cd OpenScribe
 pnpm install
 ```
 
-### 3. Configure Environment
+### 3. Configure Environment (Mixed Web Default)
+
+Create env defaults:
 
 ```bash
-pnpm setup  # Auto-generates .env.local with secure storage key
+pnpm run setup  # Auto-generates .env.local with secure storage key
 ```
 
-Edit `apps/web/.env.local` and add your API keys:
+Edit `apps/web/.env.local` and add:
 
 ```bash
-OPENAI_API_KEY=sk-proj-YOUR_KEY_HERE
+TRANSCRIPTION_PROVIDER=whisper_local
+WHISPER_LOCAL_MODEL=tiny.en
 ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
 # NEXT_PUBLIC_SECURE_STORAGE_KEY is auto-generated, don't modify
 ```
 
+`OPENAI_API_KEY` is optional unless you switch to `TRANSCRIPTION_PROVIDER=whisper_openai`.
+
 ### 4. Start the App
 
 ```bash
-pnpm dev          # Web app → http://localhost:3001
-pnpm dev:desktop  # OR desktop app (Electron)
+pnpm dev:local    # One command: Whisper local server + web app
+```
+
+Optional desktop app path:
+
+```bash
+pnpm electron:dev
+```
+
+Desktop production builds:
+
+```bash
+pnpm build:desktop:mac
+pnpm build:desktop:win
+pnpm build:desktop:linux
+# or
+pnpm build:desktop:all
+```
+
+GA support target for packaged desktop releases:
+- macOS (mainstream current) `x64`, `arm64`
+- Windows (mainstream current) `x64`
+- Linux (mainstream current desktop distros) `x64`, `arm64`
+- Recommended minimum: 8GB RAM, 20GB free disk
+
+See release gate details in [docs/RELEASE_READINESS_CHECKLIST.md](./docs/RELEASE_READINESS_CHECKLIST.md).
+Manual reviewer sign-off template: [docs/MANUAL_SIGNOFF_TEMPLATE.md](./docs/MANUAL_SIGNOFF_TEMPLATE.md).
+
+## Quick Start (Docker)
+
+SAM is the easiest way to run OpenScribe for new contributors: one command starts the web app and local Whisper transcription service.
+
+### 1. Create SAM env file
+
+```bash
+pnpm run setup
+```
+
+Edit `apps/web/.env.local` and set:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-YOUR_KEY_HERE
+```
+
+### 2. Start SAM
+
+```bash
+docker compose -f docker-compose.sam.yml up --build
+```
+
+### 3. Open the app
+
+```bash
+http://localhost:3001
+```
+
+### 4. Verify Whisper health (optional)
+
+```bash
+curl http://127.0.0.1:8002/health
+```
+
+---
+
+## Runtime Modes
+
+OpenScribe supports three workflows. **Mixed web mode is the default path.**
+
+### Mixed Web (default)
+- Transcription: local Whisper server (`pnpm whisper:server`) with default model `tiny.en`
+- Notes: larger model (default Claude in web path)
+- Start everything with one command: `pnpm dev:local`
+- Configure with `TRANSCRIPTION_PROVIDER=whisper_local` in `apps/web/.env.local`
+- [Setup guide](./docs/WHISPER-LOCAL-SETUP.md)
+
+**Language support**
+- Default model `tiny.en` as well as all `.en`-models transcribes English only
+- Multilingual transcription works for both local and API-based models
+- Multilingual transcription is supported by setting `WHISPER_LANGUAGE` (see `.env.local.example` for details) and (for local use) switching to a non-`.en` Whisper model (e.g. `tiny`, `base`, `small`)
+
+### Local-only Desktop (optional)
+- Transcription: local Whisper backend in `local-only/openscribe-backend`
+- Notes: local Ollama models (`llama3.2:*`, `gemma3:4b`)
+- No cloud inference in this path
+- First-run desktop setup wizard guides Whisper/model downloads
+- [Setup guide](./local-only/README.md)
+
+### Cloud/OpenAI + Claude (fallback)
+- Transcription: OpenAI Whisper API
+- Notes: Anthropic Claude (or other hosted LLM)
+- Requires API keys in `apps/web/.env.local`
+
+### OpenClaw + OpenEMR Demo Handoff (desktop)
+- The note editor now includes `Send to OpenClaw` (desktop app path).
+- Trigger flow: record encounter -> note appears -> click `Send to OpenClaw`.
+- OpenScribe sends patient/note context to OpenClaw and requests an OpenEMR note action.
+
+Optional environment variables for demos:
+
+```bash
+# OpenClaw CLI (default: openclaw on PATH)
+OPENCLAW_BIN=openclaw
+
+# Target OpenClaw agent/session (default: main)
+OPENCLAW_AGENT=main
+
+# If set to 1, OpenClaw can deliver responses to a configured channel
+OPENCLAW_DELIVER=0
+
+# Optional webhook transport instead of CLI
+# OPENCLAW_DEMO_WEBHOOK_URL=http://127.0.0.1:8787/openscribe/handoff
+# OPENCLAW_DEMO_WEBHOOK_TOKEN=your-token
 ```
 
 ### FYI Getting API Keys
@@ -69,25 +237,24 @@ rm -rf node_modules pnpm-lock.yaml && pnpm install
 
 ---
 
-## Demo
-
-[Demo](https://www.loom.com/share/659d4f09fc814243addf8be64baf10aa)
-
-[![Watch Demo](.github/demo.png)](https://www.loom.com/share/659d4f09fc814243addf8be64baf10aa)
-
-
 ## Purpose and Philosophy
 
 OpenScribe exists to provide a simple, open-source alternative to cloud dependent clinical documentation tools. The project is built on core principles:
 
-- **Local-first**: All data (audio recordings, transcripts, notes) is stored locally in the browser by default
-- **Privacy-conscious**: No data collection, no analytics, no cloud dependency unless explicitly configured by the user
+- **Local-first storage**: Encounter data is stored locally in the browser by default
+- **Privacy-conscious**: No analytics or telemetry in the web app; external model calls are explicit and configurable
 - **Modular**: Components can be swapped or extended (e.g., different LLM providers, transcription services)
+
+## Local MedGemma (Text-Only) Scribe
+
+This repo now includes a fully local, **text-only** MedGemma scribe workflow in
+`packages/pipeline/medgemma-scribe`. It requires **pre-transcribed text** and
+does not perform speech-to-text. See
+`packages/pipeline/medgemma-scribe/README.md` for setup and usage.
 
 ## Project Resources
 
 - **GitHub**: [sammargolis/OpenScribe](https://github.com/sammargolis/OpenScribe)
-- **Project Board**: [Trello](https://trello.com/b/9ytGVZU4/openscribe)
 - **Maintainer**: [@sammargolis](https://github.com/sammargolis)
 - **Architecture**: [architecture.md](./architecture.md)
 - **Tests**: [packages/llm](./packages/llm/src/__tests__/), [packages/pipeline](./packages/pipeline/)
@@ -107,9 +274,8 @@ OpenScribe exists to provide a simple, open-source alternative to cloud dependen
 **Physical Controls**:
 - User responsibility (device security, physical access)
 
-See the [Trello board](https://trello.com/b/9ytGVZU4/openscribe) for detailed progress.
-
 ### Future Goals (v2.0+)
+- Package app to be able to run 100% locally with transcription model and small 7b model for note generation
 - Multiple LLM providers (Anthropic, local models)
 - Custom note templates
 - Optional cloud sync (user-controlled)
@@ -136,22 +302,22 @@ See [architecture.md](./architecture.md) for complete details.
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────┐
-│              Processing Pipeline                         │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌─────┐  │
-│  │  Audio   │──►│Transcribe│──►│   LLM    │──►│Note │  │
-│  │  Ingest  │   │ (Whisper)│   │          │   │Core │  │
-│  └──────────┘   └──────────┘   └──────────┘   └─────┘  │
+│              Processing Pipeline                        │
+│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌─────┐   │
+│  │  Audio   │──►│Transcribe│──►│   LLM    │──►│Note │   │
+│  │  Ingest  │   │ (Whisper)│   │          │   │Core │   │
+│  └──────────┘   └──────────┘   └──────────┘   └─────┘   │
 │       │                                           │     │
 │       └───────────────┐         ┌─────────────────┘     │
 └───────────────────────┼─────────┼───────────────────────┘
                         ▼         ▼
 ┌─────────────────────────────────────────────────────────┐
-│                  Storage Layer                           │
+│                  Storage Layer                          │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │  Encrypted LocalStorage (AES-GCM)                │   │
 │  │  - Encounters (patient data, transcripts, notes) │   │
 │  │  - Metadata (timestamps, status)                 │   │
-│  │  - Audio (in-memory only, not persisted)        │   │
+│  │  - Audio (in-memory only, not persisted)         │   │
 │  └──────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -159,8 +325,10 @@ See [architecture.md](./architecture.md) for complete details.
 **Key Components:**
 - **UI Layer**: React components in `apps/web/` using Next.js App Router
 - **Audio Ingest**: Browser MediaRecorder API → WebM/MP4 blob
-- **Transcription**: OpenAI Whisper API
-- **LLM**: Provider-agnostic client (defaults to Anthropic Claude via `packages/llm`)
+- **Transcription (default web path)**: local Whisper server (`whisper.cpp` via `pywhispercpp`, model `tiny.en`)
+- **LLM (default web path)**: Anthropic Claude via `packages/llm`
+- **Fully local desktop path**: Whisper + Ollama via `local-only/openscribe-backend`
+- **Cloud fallback path**: OpenAI Whisper API + hosted provider via `packages/llm`
 - **Note Core**: Structured clinical note generation and validation
 - **Storage**: AES-GCM encrypted browser localStorage
 
@@ -177,7 +345,7 @@ See [architecture.md](./architecture.md) for complete details.
 ## Privacy & Data Handling
 
 **Storage**: AES-GCM encrypted localStorage. Audio processed in-memory, not persisted.  
-**Transmission**: All external API calls (audio → Whisper API, transcripts → Anthropic Claude) use HTTPS/TLS encryption. The application enforces HTTPS-only connections and displays a security warning if accessed over HTTP in production builds.  
+**Transmission**: In the default mixed mode, audio stays local for transcription and transcript text is sent to Anthropic Claude over HTTPS/TLS for note generation. If `TRANSCRIPTION_PROVIDER=whisper_openai`, audio is sent to OpenAI Whisper over HTTPS/TLS. The application enforces HTTPS-only connections and displays a security warning if accessed over HTTP in production builds.  
 **No Tracking**: Zero analytics, telemetry, or cloud sync
 
 **Use Responsibility**  
@@ -187,7 +355,27 @@ See [architecture.md](./architecture.md) for complete details.
 
 ## Limitations & Disclaimers
  
-**HIPAA Compliance**: Self hosted users ensure their own compliance  
+**HIPAA Compliance**: OpenScribe includes foundational privacy/security features, but this alone does not make the application HIPAA-compliant. Below is what is already built, followed by a checklist a health system must complete to operate compliantly.
+
+**Built (foundational rails)**
+- AES-GCM encrypted localStorage for PHI at rest in the browser
+- Audio processed in-memory and not persisted
+- TLS/HTTPS for external API calls (Whisper, Claude)
+- No analytics/telemetry or cloud sync by default (local-first)
+- HTTPS-only enforcement in production with HTTP warning
+
+**Health System Checklist (required to run compliantly)**
+- Execute BAAs with all PHI-touching vendors (e.g., OpenAI, Anthropic, hosting providers)
+- Perform and document HIPAA Security Rule risk analysis and remediation plan
+- Implement access controls (SSO/MFA, least-privilege, session timeouts)
+- Establish audit logging, log review processes, and retention policies
+- Define data retention, backup, and secure deletion procedures for PHI
+- Configure device, endpoint, and physical safeguards (disk encryption, MDM, secure workstations)
+- Document policies and procedures (incident response, breach notification, sanctions)
+- Train workforce on HIPAA/privacy/security requirements
+- Establish key management and secret rotation procedures
+- Validate network/security posture (secure deployment, vulnerability management)
+
 **No EHR Integration**: Standalone tool  
 **Browser Storage Limits**: ~5-10MB typical  
 **No Warranty**: Provided as-is under MIT License
@@ -202,7 +390,16 @@ Contributions welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed gui
 3. Make changes with tests
 4. Submit a PR
 
-Check the [Trello board](https://trello.com/b/9ytGVZU4/openscribe) for current priorities.
+## Notices
+
+Portions of this project include or were derived from code in:
+
+**StenoAI** – https://github.com/ruzin/stenoai  
+Copyright (c) 2025 Skrape Limited  
+Licensed under the MIT License.
+
+All third-party code remains subject to its original license terms.
+
 
 ## License
 

@@ -1,6 +1,8 @@
 import type { NextRequest } from "next/server"
 import { transcriptionSessionStore } from "@transcript-assembly"
 
+export const runtime = "nodejs"
+
 function formatSseEvent(event: string, data: Record<string, unknown>): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
 }

@@ -6,12 +6,29 @@ import path from "node:path"
 
 const root = path.resolve(process.cwd())
 
-const allowedRootDirs = new Set(["apps", "packages", "config", "build", "node_modules"])
+const allowedRootDirs = new Set([
+  "apps",
+  "packages",
+  "config",
+  "build",
+  "docker",
+  "docs",
+  "infra",
+  "local-only",
+  "models",
+  "output",
+  "recordings",
+  "scripts",
+  "node_modules",
+])
 const allowedRootFiles = new Set([
   "package.json",
   "pnpm-lock.yaml",
   "tsconfig.json",
   "README.md",
+  "CONTRIBUTING.md",
+  "LICENSE",
+  "requirements.txt",
   "architecture.md",
   ".gitignore",
   "BUILD_STATUS.md",
@@ -19,11 +36,23 @@ const allowedRootFiles = new Set([
   "QUICK_START.md",
   "STABILITY_FIXES.md",
   "TEST_SESSION.md",
+  ".dockerignore",
+  "docker-compose.sam.yml",
+  "tsconfig.tsbuildinfo",
 ])
 const buildArtifacts = new Set([".next", ".tests-dist", "dist"])
 const configPattern = /\.config\.(?:js|cjs|mjs|ts)$/
 const kebabCase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
-const pipelineStages = new Set(["audio-ingest", "transcribe", "assemble", "note-core", "render", "eval"])
+const pipelineStages = new Set([
+  "audio-ingest",
+  "transcribe",
+  "assemble",
+  "note-core",
+  "render",
+  "shared",
+  "medgemma-scribe",
+  "eval",
+])
 
 const errors = []
 
@@ -41,6 +70,9 @@ for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
       errors.push(`Unexpected top-level directory: ${name}`)
     }
   } else {
+    if (name.endsWith(".tsbuildinfo")) {
+      continue
+    }
     if (name.startsWith(".env")) {
       continue
     }

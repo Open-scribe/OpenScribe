@@ -42,9 +42,16 @@ function validateAnthropicHttps(client: Anthropic): void {
 }
 
 export async function runLLMRequest({ system, prompt, model, apiKey, jsonSchema }: LLMRequest): Promise<string> {
-  const anthropicApiKey = apiKey || process.env.ANTHROPIC_API_KEY
+  const anthropicApiKey = (apiKey || process.env.ANTHROPIC_API_KEY || "").trim()
 
-  if (!anthropicApiKey) {
+  const normalizedKey = anthropicApiKey.toLowerCase()
+  const looksPlaceholder =
+    !anthropicApiKey ||
+    normalizedKey.includes("your_key") ||
+    normalizedKey.includes("your-key") ||
+    normalizedKey.includes("placeholder")
+
+  if (looksPlaceholder) {
     throw new Error(
       "ANTHROPIC_API_KEY is required. " +
       "Please configure it in Settings."
@@ -79,7 +86,20 @@ export async function runLLMRequest({ system, prompt, model, apiKey, jsonSchema 
     console.warn("⚠️  jsonSchema parameter is deprecated and will be ignored. The system now generates markdown directly.")
   }
 
-  const message = await client.messages.create(requestParams)
+  const timeoutMs = Number(process.env.ANTHROPIC_TIMEOUT_MS || 45000)
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`Anthropic request timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
+  })
+
+  let message: Awaited<ReturnType<typeof client.messages.create>>
+  try {
+    message = await Promise.race([client.messages.create(requestParams), timeoutPromise])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 
   // Extract text content from response
   const textContent = message.content.find((block) => block.type === "text")
@@ -92,4 +112,3 @@ export async function runLLMRequest({ system, prompt, model, apiKey, jsonSchema 
 
 // Export prompts for versioned prompt management
 export * as prompts from "./prompts"
-

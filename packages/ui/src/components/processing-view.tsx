@@ -10,6 +10,7 @@ interface ProcessingViewProps {
   patientName: string
   transcriptionStatus: StepStatus
   noteGenerationStatus: StepStatus
+  transcriptionErrorMessage?: string
   onRetryTranscription?: () => void
   onRetryNoteGeneration?: () => void
 }
@@ -18,6 +19,7 @@ export function ProcessingView({
   patientName,
   transcriptionStatus,
   noteGenerationStatus,
+  transcriptionErrorMessage,
   onRetryTranscription,
   onRetryNoteGeneration,
 }: ProcessingViewProps) {
@@ -29,12 +31,13 @@ export function ProcessingView({
       </div>
 
       <div className="w-full max-w-xs space-y-3">
-        <ProcessingStep label="Transcribing audio" status={transcriptionStatus} onRetry={onRetryTranscription} />
         <ProcessingStep
-          label="Generating clinical note"
-          status={noteGenerationStatus}
-          onRetry={onRetryNoteGeneration}
+          label="Transcribing audio"
+          status={transcriptionStatus}
+          errorMessage={transcriptionErrorMessage}
+          onRetry={onRetryTranscription}
         />
+        <ProcessingStep label="Generating clinical note" status={noteGenerationStatus} onRetry={onRetryNoteGeneration} />
       </div>
     </div>
   )
@@ -43,10 +46,12 @@ export function ProcessingView({
 function ProcessingStep({
   label,
   status,
+  errorMessage,
   onRetry,
 }: {
   label: string
   status: StepStatus
+  errorMessage?: string
   onRetry?: () => void
 }) {
   return (
@@ -72,7 +77,9 @@ function ProcessingStep({
         >
           {label}
         </p>
-        {status === "failed" && <p className="mt-0.5 text-xs text-muted-foreground">An error occurred</p>}
+        {status === "failed" && (
+          <p className="mt-0.5 text-xs text-muted-foreground">{errorMessage || "An error occurred"}</p>
+        )}
       </div>
       {status === "failed" && onRetry && (
         <Button
