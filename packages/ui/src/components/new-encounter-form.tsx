@@ -9,7 +9,7 @@ import { Label } from "@ui/lib/ui/label"
 import { Mic } from "lucide-react"
 
 interface NewEncounterFormProps {
-  onStart: (data: { patient_name: string; patient_id: string; visit_reason: string }) => void
+  onStart: (data: { patient_name: string; patient_id: string; visit_reason: string; consent_given: boolean }) => void
   onCancel: () => void
 }
 
@@ -22,6 +22,7 @@ const VISIT_TYPE_OPTIONS = [
 export function NewEncounterForm({ onStart, onCancel }: NewEncounterFormProps) {
   const [patientName, setPatientName] = useState("")
   const [visitType, setVisitType] = useState(VISIT_TYPE_OPTIONS[0]?.value ?? "")
+  const [consentGiven, setConsentGiven] = useState(false)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -29,6 +30,7 @@ export function NewEncounterForm({ onStart, onCancel }: NewEncounterFormProps) {
       patient_name: patientName,
       patient_id: "",
       visit_reason: visitType,
+      consent_given: consentGiven,
     })
   }
 
@@ -66,6 +68,22 @@ export function NewEncounterForm({ onStart, onCancel }: NewEncounterFormProps) {
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center space-x-2">
+            <input
+              id="recording-consent"
+              type="checkbox"
+              checked={consentGiven}
+              required
+              onChange={(e) => setConsentGiven(e.target.checked)}
+              className="h-4 w-4 rounded border-border text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            />
+            <Label htmlFor="recording-consent" className="text-sm text-muted-foreground">
+              I consent to audio recording for clinical documentation.
+            </Label>
+          </div>
         </div>
 
         <div className="flex gap-3 pt-4">
