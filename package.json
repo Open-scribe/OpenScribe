@@ -116,7 +116,7 @@
     "asar": "^3.2.0",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
-    "electron": "^39.2.5",
+    "electron": "^39.8.4",
     "electron-builder": "^26.8.1",
     "electron-builder-squirrel-windows": "26.8.1",
     "eslint": "^9.13.0",
