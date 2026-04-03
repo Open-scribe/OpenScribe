@@ -700,8 +700,6 @@ function HomePageContent() {
     pauseRecording,
     resumeRecording,
     error: recordingError,
-    noiseLevel,
-    highNoiseWarning,
   } = useAudioRecorder({
     onSegmentReady: handleSegmentReady,
     segmentDurationMs: SEGMENT_DURATION_MS,
@@ -987,7 +985,6 @@ function HomePageContent() {
     patient_name: string
     patient_id: string
     visit_reason: string
-    consent_given: boolean
   }) => {
     try {
       if (useLocalBackend) {
