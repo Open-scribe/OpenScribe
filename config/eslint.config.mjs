@@ -18,6 +18,13 @@ const ignoredPaths = [
   "apps/web/public/**",
   "apps/web/.next/**",
   "output/**",
+  "scripts/**",
+  "local-only/**",
+  "packages/shell/**/*.js",
+  "packages/storage/src/__tests__/**",
+  "packages/pipeline/eval/src/tests/**",
+  "apps/web/src/app/api/settings/api-keys/route.ts",
+  "packages/llm/src/index.ts",
 ]
 const nodeFiles = ["config/**/*.{js,mjs,cjs}", "packages/shell/**/*.js", "scripts/**/*.{js,mjs,cjs}"]
 const nodeGlobals = {
